@@ -7,7 +7,6 @@ import os
 from scipy import optimize
 from scipy import misc
 from numpy import linalg as LA
-from PIL import Image
 from theano import function, config, shared, sandbox
 import theano.tensor as T
 from theano.tensor.shared_randomstreams import RandomStreams

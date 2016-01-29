@@ -9,7 +9,6 @@ from scipy import misc
 from numpy import linalg as LA
 
 import os
-from PIL import Image
 from numpy import linalg as LA
 from math import sqrt
 
@@ -21,15 +20,11 @@ import sys,getopt
 
 from utils import tile_raster_images
 
-try:
-    import PIL.Image as Image
-except ImportError:
-    import Image
 
 class StackedAutoencoder(object):
 
 
-    def __init__(self,in_size=1586, hidden_size = [500, 500, 250], out_size = 3, batch_size = 100, corruption_levels=[0.1, 0.1, 0.1],dropout=True,drop_rates=[0.5,0.2,0.2]):
+    def __init__(self,in_size=1585, hidden_size = [500, 500, 250], out_size = 3, batch_size = 100, corruption_levels=[0.1, 0.1, 0.1],dropout=True,drop_rates=[0.5,0.2,0.2]):
         self.i_size = in_size
         self.h_sizes = hidden_size
         self.o_size = out_size
@@ -127,7 +122,7 @@ class StackedAutoencoder(object):
             data_x = []
             data_y = []
             for i,row in enumerate(reader):
-                data_x.append(row[:-1])
+                data_x.append(row[:-2])
                 data_y.append(row[-1])
             train_set = (data_x,data_y)
 
@@ -136,7 +131,7 @@ class StackedAutoencoder(object):
             data_x = []
             data_y = []
             for i,row in enumerate(reader):
-                data_x.append(row[:-1])
+                data_x.append(row[:-2])
                 data_y.append(row[-1])
             valid_set = (data_x,data_y)
 
@@ -157,6 +152,7 @@ class StackedAutoencoder(object):
 
         train_x,train_y = get_shared_data(train_set)
         valid_x,valid_y = get_shared_data(valid_set)
+        test_test = np.asarray(test_set[0],dtype=config.floatX)
         test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
 
 
@@ -202,8 +198,8 @@ class StackedAutoencoder(object):
         (valid_set_x, valid_set_y) = datasets[1]
         test_set_x = datasets[2]
 
-        n_valid_batches = valid_set_x.get_value(borrow=True).shape[0]
-        n_valid_batches /= batch_size
+        n_valid_batches = int(valid_set_x.get_value(borrow=True).shape[0]/batch_size)
+
 
         index = T.lscalar('index')  # index to a [mini]batch
 
@@ -239,9 +235,9 @@ class StackedAutoencoder(object):
 
         (train_set_x, train_set_y) = datasets[0]
         (valid_set_x, valid_set_y) = datasets[1]
-        test_set_x = datasets[2]
 
-        n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
+
+        n_train_batches = int(train_set_x.get_value(borrow=True).shape[0] / batch_size)
 
         pre_train_fns = self.greedy_pre_training(train_set_x, batch_size=self.batch_size,pre_lr=pre_lr,denoising=denoising)
 
@@ -322,15 +318,15 @@ class StackedAutoencoder(object):
 
 
     def test_model(self,test_set_x,batch_size= 1):
-
+        batch_size = 1
         print('\nTesting the model...')
-        n_test_batches = test_set_x.get_value(borrow=True).shape[0] / batch_size
+        n_test_batches = int(test_set_x.get_value(borrow=True).shape[0] / batch_size)
 
         index = T.lscalar('index')
 
         #no update parameters, so this just returns the values it calculate
         #without objetvie function minimization
-        test_fn = function(inputs=[index], outputs=[self.predicted], givens={
+        test_fn = function(inputs=[index], outputs=self.predicted, givens={
             self.x: test_set_x[
                 index * batch_size: (index + 1) * batch_size
             ]
@@ -339,14 +335,25 @@ class StackedAutoencoder(object):
         pred_out = []
         for batch_index in range(n_test_batches):
             out = test_fn(batch_index)
-            pred_out.append(out)
+            pred_out.append(out[0])
+
 
         print("Predicted Values \n")
         print(pred_out)
 
+        with open('deepnet_out.csv', 'w',newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            for p in pred_out:
+                row = [0,0,0]
+                row[p] = 1
+                writer.writerow(row)
+
     def sigmoid(self, x):
         return 1.0 / (1.0 + np.exp(-x))
 
+    def lin_rec(self,x):
+        return np.max([0,x])
     def cost(self,input,theta_as_blocks,layer_idx,index):
 
         layer_input = input
@@ -415,19 +422,19 @@ if __name__ == '__main__':
     #when I run in Pycharm
     else:
         lam = 0.0
-        hid = [500,500,500]
+        hid = [500,500]
         pre_ep = 20
-        fine_ep = 75
-        b_size = 100
-        dropout = False
-        drop_rates = [0.2,0.2,0.2,0.2]
-        corr_level = [0.3, 0.3, 0.3]
+        fine_ep = 100
+        b_size = 50
+        dropout = True
+        drop_rates = [0.2,0.2,0.2]
+        corr_level = [0.2,0.2]
         denoising=True
         beta = 0.0
-        rho = 0.2
+        rho = 0.6
     sae = StackedAutoencoder(hidden_size=hid, batch_size=b_size, corruption_levels=corr_level,dropout=dropout,drop_rates=drop_rates)
     all_data = sae.load_data()
     sae.train_model(datasets=all_data, pre_epochs=pre_ep, fine_epochs=fine_ep, batch_size=sae.batch_size, lam=lam, beta=beta, rho=rho, denoising=denoising)
-    sae.test_model(all_data[2][0],batch_size=sae.batch_size)
+    sae.test_model(all_data[2],batch_size=sae.batch_size)
     #max_inp = sae.get_input_threshold(all_data[0][0])
     #sae.visualize_hidden(max_inp)
