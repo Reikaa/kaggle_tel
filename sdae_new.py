@@ -87,8 +87,8 @@ class SoftMax(object):
         self.error = None
         self.params = [self.W, self.b]
 
-    def process(self,sym_x,sym_y):
-        self.p_y_given_x = T.nnet.softmax(T.dot(sym_x, self.W) + self.b)
+    def process(self,sym_chained_x,sym_y):
+        self.p_y_given_x = T.nnet.softmax(T.dot(sym_chained_x, self.W) + self.b)
         self.y_pred = T.argmax(self.p_y_given_x, axis=1)
         self.error = T.mean(T.neq(self.y_pred, sym_y))
 
@@ -98,17 +98,19 @@ class SDAE(object):
     def __init__(self,batch_size):
         self.in_size = 1585
         self.out_size = 3
-        self.layer_sizes = [500,500,500]
+        self.layer_sizes = [500,250,100]
         self.layers = []
         self.sym_x = T.dmatrix('x')
         self.sym_y = T.ivector('y')
         self.learn_rate = 0.2
+        self.lam = 0.1
         self.batch_size = batch_size
         self.pre_costs = []
         self.fine_tune_cost = None
         self.p_y_given_x = None
         self.y_pred = None
         self.softmax = SoftMax(self.layer_sizes[-1],self.out_size)
+        self.disc_cost = None
 
     def process(self):
 
@@ -125,7 +127,18 @@ class SDAE(object):
             layer_x_hat = layer.decode(layer_out)
             self.pre_costs.append(T.mean(T.nnet.binary_crossentropy(layer_x_hat,layer_x)))
 
-        self.softmax.process(self.sym_x,self.sym_y)
+        soft_in = self.chained_out(self.layers,self.sym_x,len(self.layers))
+        self.softmax.process(soft_in,self.sym_y)
+
+        gen_out = self.sym_x
+        for i,layer in enumerate(self.layers):
+            gen_out = layer.encode(gen_out)
+
+        gen_out_hat = gen_out
+        for layer in reversed(self.layers):
+            gen_out_hat = layer.decode(gen_out_hat)
+
+        self.disc_cost = self.softmax.error + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
 
     #I is the index of the layer you want the out put of (index)
     def chained_out(self,layers,x,I):
@@ -192,7 +205,7 @@ class SDAE(object):
         for layer in self.layers:
             params.extend([layer.W,layer.b,layer.b_prime])
         params.extend([self.softmax.W,self.softmax.b])
-        updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.softmax.error,wrt=params))]
+        updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
         finetune_fn = function(inputs=[idx],outputs=self.softmax.error,updates=updates,
                                                givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                                         self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]
