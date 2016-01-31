@@ -12,7 +12,7 @@ def load_teslstra_data():
         data_x = []
         data_y = []
         for i,row in enumerate(reader):
-            data_x.append(row[:-2])
+            data_x.append(row[:-1])
             data_y.append(row[-1])
         train_set = (data_x,data_y)
 
@@ -21,7 +21,7 @@ def load_teslstra_data():
         data_x = []
         data_y = []
         for i,row in enumerate(reader):
-            data_x.append(row[:-2])
+            data_x.append(row[:-1])
             data_y.append(row[-1])
         valid_set = (data_x,data_y)
 
@@ -29,7 +29,7 @@ def load_teslstra_data():
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
-            data_x.append(row[:-1])
+            data_x.append(row)
         test_set = [data_x]
 
     def get_shared_data(data_xy):
@@ -45,6 +45,9 @@ def load_teslstra_data():
     test_test = np.asarray(test_set[0],dtype=config.floatX)
     test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
 
+    print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
+    print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
+    print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
     all_data = [(train_x,train_y),(valid_x,valid_y),(test_x)]
 
@@ -69,7 +72,7 @@ class Layer(object):
         self.params = [self.W, self.b, self.b_prime]
 
     def encode(self,x):
-        self.out = relu(T.dot(x,self.W)+self.b)
+        self.out = T.nnet.sigmoid(T.dot(x,self.W)+self.b)
         return self.out
 
     def decode(self,out):
@@ -126,7 +129,7 @@ class LogisticRegression(object):
         self.p_y_given_x = T.nnet.softmax(T.dot(self.sym_x, self.W) + self.b)
         self.y_pred = T.argmax(self.p_y_given_x, axis=1)
         self.error = T.mean(T.neq(self.y_pred, self.sym_y))
-        self.cost = -T.mean(T.log(self.p_y_given_x)[T.arange(self.sym_y.shape[0]), self.sym_y]) +
+        self.cost = -T.mean(T.log(self.p_y_given_x)[T.arange(self.sym_y.shape[0]), self.sym_y])
 
     def train(self,x,y):
         idx = T.iscalar('idx')
@@ -168,10 +171,11 @@ class LogisticRegression(object):
 class SDAE(object):
 
     def __init__(self,batch_size):
-        self.in_size = 1585
+        self.in_size = 1586
         self.out_size = 3
-        self.layer_sizes = [1000,500,250]
-        self.corruption_levels = [0.2,0.2,0.2]
+        self.layer_sizes = [1500]
+        self.denoising = False
+        self.corruption_levels = [0.05,0.05,0.05,0.05]
         self.layers = []
         self.sym_x = T.dmatrix('x')
         self.sym_y = T.ivector('y')
@@ -245,7 +249,7 @@ class SDAE(object):
     def test_cost(self,x,y):
         idx = T.iscalar('idx')
 
-        cost = T.nnet.binary_crossentropy(relu(T.dot(self.layers[0].out,self.layers[0].W.T)+self.layers[0].b_prime),self.sym_x)
+        cost = T.nnet.binary_crossentropy(T.nnet.sigmoid(T.dot(self.layers[0].out,self.layers[0].W.T)+self.layers[0].b_prime),self.sym_x)
         out_test_fn = function(inputs=[idx],outputs=cost,
                                givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]}
                                )
@@ -310,9 +314,9 @@ class SDAE(object):
 
 if __name__ == '__main__':
 
-    pre_epochs = 10
-    finetune_epochs = 1000
-    batch_size = 50
+    pre_epochs = 5
+    finetune_epochs = 500
+    batch_size = 10
 
     train,valid,test_x = load_teslstra_data()
 
@@ -320,7 +324,7 @@ if __name__ == '__main__':
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
     n_test_batches = int(test_x.get_value(borrow=True).shape[0])
 
-    model = 'LogisticRegression'
+    model = 'SDAE'
     if model == 'SDAE':
         sdae = SDAE(batch_size)
         sdae.process()
@@ -329,6 +333,7 @@ if __name__ == '__main__':
 
         pretrain_func = sdae.pre_train(train[0],train[1])
         finetune_func = sdae.fine_tune(train[0],train[1])
+        finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
         validate_func = sdae.validate(valid[0],valid[1])
         #test_fn = sdae.test_decode(train[0],train[1])
         #test_fn(0)
@@ -341,18 +346,31 @@ if __name__ == '__main__':
                 pre_train_cost.append(pretrain_func(b))
             print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
 
+        prev_valid_err = np.inf
         for epoch in range(finetune_epochs):
+            from random import shuffle
             finetune_cost = []
-            for b in range(n_train_batches):
+
+            valid_b_idx =[i for i in range(0,n_valid_batches)]
+            shuffle(valid_b_idx)
+            for b in valid_b_idx:
+                finetune_cost.append(finetune_func(b))
+
+            b_idx =[i for i in range(0,n_train_batches)]
+            shuffle(b_idx)
+            for b in b_idx:
                 finetune_cost.append(finetune_func(b))
             print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
 
-            if epoch%10==0:
+            if epoch%25==0:
                 valid_cost = []
                 for b in range(n_valid_batches):
                     valid_cost.append(validate_func(b))
+                curr_valid_err = np.mean(valid_cost)
                 print('Validation error: ',np.mean(valid_cost))
-
+                if curr_valid_err*0.9>prev_valid_err:
+                    break
+                prev_valid_err = curr_valid_err
     elif model == 'LogisticRegression':
 
         logreg = LogisticRegression(batch_size)
