@@ -49,6 +49,7 @@ with open('test.csv', 'r',newline='') as f:
 feature_data = collections.defaultdict()
 all_features = []
 max_per_feature = collections.defaultdict()
+feature_count = collections.defaultdict()
 
 with open('log_feature.csv', 'r',newline='') as f:
     reader = csv.reader(f)
@@ -68,6 +69,12 @@ with open('log_feature.csv', 'r',newline='') as f:
                 all_features.append(int(col[8:]))
             elif j==2:
                 vol = int(col)
+
+        if feature in feature_count:
+            feature_count[feature] += 1
+        else:
+            feature_count[feature] = 1
+
         if id in feature_data:
             feature_data[id].append([feature,vol])
         else:
@@ -79,7 +86,12 @@ with open('log_feature.csv', 'r',newline='') as f:
         else:
             max_per_feature[feature] = vol
 
-max_feature = np.max(all_features)
+
+important_features=[] # based on the values count for each feature
+for k,v in feature_count.items():
+    if v > 50:
+        important_features.append(k)
+max_feature = len(important_features)
 
 severity_data = collections.defaultdict()
 all_severity = []
@@ -167,8 +179,8 @@ for k,v in train_data.items():
     all_data[k] = v
     assert len(v)==7'''
 
-neuron_count = (max_loc+1) + (max_feature+1) + (max_severity+1) + (max_event+1) + (max_res+1)
-print(neuron_count)
+neuron_count = (1) + (max_feature+1) + (max_severity+1) + (max_event+1) + (max_res+1)
+print('neuron count: ',neuron_count)
 
 def turn_to_vec(val_idx,max_val,val=1):
     row = [0 for _ in range(max_val+1)]
@@ -176,21 +188,23 @@ def turn_to_vec(val_idx,max_val,val=1):
     return row
 
 valid_set = []
-with open('deepnet_features_train.csv', 'w',newline='') as f:
+with open('features_train_vectorized.csv', 'w',newline='') as f:
         writer = csv.writer(f)
         for k,v in train_data.items():
             write_row=[]
             out = v[1]
             print('vectorizing location')
-            loc_vec = turn_to_vec(v[0],max_loc)
+            #loc_vec = turn_to_vec(v[0],max_loc)
+            loc_vec = [v[0]]
 
             print('vectorizing features')
             f_list = feature_data[k]
             feature_vec = [0 for _ in range(max_feature+1)]
             # list[0] is feature id and list[1] is corresponding value
             for list in f_list:
-                feature_vec[list[0]] = list[1]*1.0/max_per_feature[list[0]]
-                assert feature_vec[list[0]]<=1
+                if list[0] in important_features:
+                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+                    assert feature_vec[important_features.index(list[0])]<=1
 
 
             print('vectorizing severity')
@@ -206,40 +220,63 @@ with open('deepnet_features_train.csv', 'w',newline='') as f:
             res_val = resource_data[k]
             res_vec = turn_to_vec(res_val[0],max_res)
 
-
-            write_row = loc_vec
+            write_row = [k]
+            write_row.extend(loc_vec)
             write_row.extend(feature_vec)
             write_row.extend(sev_vec)
             write_row.extend(event_vec)
             write_row.extend(res_vec)
             write_row.extend([out])
-            print(len(write_row))
-            assert len(write_row)==neuron_count+1
-            if np.random.random()>=0.1 or len(valid_set)>=1000:
-                writer.writerow(write_row)
-            else:
-                valid_set.append(write_row)
+            print('len write row: ',len(write_row))
+            assert len(write_row)==neuron_count+2
 
-with open('deepnet_features_valid.csv', 'w',newline='') as f:
+            writer.writerow(write_row)
+
+with open('features_train.csv', 'w',newline='') as f:
+        header = ['id','location']
+        for feat in important_features:
+            header.append('feature_'+str(feat))
+        header.extend(['severity','event','resource','output'])
+
         writer = csv.writer(f)
-        for v in valid_set:
-            writer.writerow(v)
+        writer.writerow(header)
+        for k,v in train_data.items():
+            write_row = [k]
+            out = v[1]
+            write_row.append(v[0]) #location
 
-with open('deepnet_features_test.csv', 'w',newline='') as f:
+            f_list = feature_data[k] #list of [feature_id, value] for a particular entry ID
+            feature_vec = [0 for _ in range(max_feature)]
+            # list[0] is feature id and list[1] is corresponding value
+            for list in f_list:
+                if list[0] in important_features:
+                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+
+            write_row.extend(feature_vec)
+
+            write_row.append(severity_data[k][0]*1.0/max_severity)
+            write_row.append(event_data[k][0]*1.0/max_event)
+            write_row.append(resource_data[k][0]*1.0/max_res)
+            write_row.append(out)
+            writer.writerow(write_row)
+
+with open('features_test_vectorized.csv', 'w',newline='') as f:
         writer = csv.writer(f)
         for k,v in test_data.items():
             write_row=[]
 
             print('vectorizing location')
-            loc_vec = turn_to_vec(v[0],max_loc)
+            #loc_vec = turn_to_vec(v[0],max_loc)\
+            loc_vec = [v[0]]
 
             print('vectorizing features')
             f_list = feature_data[k]
             feature_vec = [0 for _ in range(max_feature+1)]
             # list[0] is feature id and list[1] is corresponding value
             for list in f_list:
-                feature_vec[list[0]] = list[1]*1.0/max_per_feature[list[0]]
-                assert feature_vec[list[0]]<=1
+                if list[0] in important_features:
+                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+                    assert feature_vec[important_features.index(list[0])]<=1
 
             print('vectorizing severity')
             sev_val = severity_data[k]
@@ -254,11 +291,42 @@ with open('deepnet_features_test.csv', 'w',newline='') as f:
             res_val = resource_data[k]
             res_vec = turn_to_vec(res_val[0],max_res)
 
-            write_row = loc_vec
+            write_row = [k]
+            write_row.extend(loc_vec)
             write_row.extend(feature_vec)
             write_row.extend(sev_vec)
             write_row.extend(event_vec)
             write_row.extend(res_vec)
             print(len(write_row))
-            assert len(write_row)==neuron_count
+            assert len(write_row)==neuron_count+1
+            writer.writerow(write_row)
+
+with open('features_test.csv', 'w',newline='') as f:
+
+        header = ['id','location']
+        for feat in important_features:
+            header.append('feature_'+str(feat))
+        header.extend(['severity','event','resource'])
+
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for k,v in test_data.items():
+            write_row=[k]
+
+            write_row.append(v[0]) #location
+
+            f_list = feature_data[k] #list of [feature_id, value] for a particular entry ID
+            feature_vec = [0 for _ in range(max_feature)]
+            # list[0] is feature id and list[1] is corresponding value
+            for list in f_list:
+                if list[0] in important_features:
+                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+
+            write_row.extend(feature_vec)
+
+            write_row.append(severity_data[k][0]*1.0/max_severity)
+            write_row.append(event_data[k][0]*1.0/max_event)
+            write_row.append(resource_data[k][0]*1.0/max_res)
+
+            #assert len(write_row)==neuron_count
             writer.writerow(write_row)

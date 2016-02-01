@@ -7,29 +7,36 @@ def load_teslstra_data():
     train_set = []
     valid_set = []
     test_set = []
-    with open('deepnet_features_train.csv', 'r',newline='') as f:
+    with open('features_train.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         data_y = []
+        valid_x = []
+        valid_y = []
+        valid_idx = np.random.randint(0,7000,size=(500,)).tolist()
         for i,row in enumerate(reader):
-            data_x.append(row[:-1])
-            data_y.append(row[-1])
+            if i==0:
+                continue
+            if not i in valid_idx:
+                # first 2 columns are ID and location
+                data_x.append(row[2:-1])
+                data_y.append(row[-1])
+            else:
+                # first 2 columns are ID and location
+                valid_x.append(row[2:-1])
+                valid_y.append(row[-1])
+
         train_set = (data_x,data_y)
+        valid_set = (valid_x,valid_y)
 
-    with open('deepnet_features_valid.csv', 'r',newline='') as f:
-        reader = csv.reader(f)
-        data_x = []
-        data_y = []
-        for i,row in enumerate(reader):
-            data_x.append(row[:-1])
-            data_y.append(row[-1])
-        valid_set = (data_x,data_y)
-
-    with open('deepnet_features_test.csv', 'r',newline='') as f:
+    with open('features_test.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
-            data_x.append(row)
+            if i==0:
+                continue
+            # first 2 columns are ID and location
+            data_x.append(row[2:])
         test_set = [data_x]
 
     def get_shared_data(data_xy):
@@ -42,7 +49,6 @@ def load_teslstra_data():
 
     train_x,train_y = get_shared_data(train_set)
     valid_x,valid_y = get_shared_data(valid_set)
-    test_test = np.asarray(test_set[0],dtype=config.floatX)
     test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
@@ -104,9 +110,9 @@ class SoftMax(object):
 
 class LogisticRegression(object):
 
-    def __init__(self,batch_size):
+    def __init__(self,in_size,batch_size):
         self.batch_size = batch_size
-        self.in_size = 1585
+        self.in_size = in_size
         self.out_size = 3
         self.learn_rate = 0.1
         self.sym_x = T.dmatrix('x')
@@ -170,10 +176,10 @@ class LogisticRegression(object):
 
 class SDAE(object):
 
-    def __init__(self,batch_size):
-        self.in_size = 1586
+    def __init__(self,in_size,batch_size):
+        self.in_size = in_size
         self.out_size = 3
-        self.layer_sizes = [1500]
+        self.layer_sizes = [1000,500,250]
         self.denoising = False
         self.corruption_levels = [0.05,0.05,0.05,0.05]
         self.layers = []
@@ -316,8 +322,8 @@ if __name__ == '__main__':
 
     pre_epochs = 5
     finetune_epochs = 500
-    batch_size = 10
-
+    batch_size = 1
+    in_size = 98
     train,valid,test_x = load_teslstra_data()
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
@@ -326,7 +332,7 @@ if __name__ == '__main__':
 
     model = 'SDAE'
     if model == 'SDAE':
-        sdae = SDAE(batch_size)
+        sdae = SDAE(in_size,batch_size)
         sdae.process()
 
         #sdae.test_relu()
@@ -373,7 +379,7 @@ if __name__ == '__main__':
                 prev_valid_err = curr_valid_err
     elif model == 'LogisticRegression':
 
-        logreg = LogisticRegression(batch_size)
+        logreg = LogisticRegression(in_size,batch_size)
         logreg.process()
         logreg_train_func = logreg.train(train[0],train[1])
         logreg_valid_func = logreg.validate(valid[0],valid[1])
