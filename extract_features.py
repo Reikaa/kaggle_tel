@@ -210,6 +210,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
     else:
         file_name += '_test.csv'
 
+    doOnce = False
     with open(file_name, 'w',newline='') as f:
         writer = csv.writer(f)
         for k,v in train_data.items():
@@ -263,7 +264,15 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                     res_vec = turn_to_vec(resource_data[k],max_res)
 
 
+            if not doOnce:
+                header = ['id','loc']
+                header.extend(['feat_'+i for i in range(len(feature_vec))])
+                header.extend(['sev_'+i for i in range(len(sev_vec))])
+                header.extend(['eve_'+i for i in range(len(event_vec))])
+                header.extend(['res_'+i for i in range(len(res_vec))])
+                doOnce = True
 
+            
             write_row.extend(loc_vec)
             write_row.extend(feature_vec)
             write_row.extend(sev_vec)
