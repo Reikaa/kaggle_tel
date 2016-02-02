@@ -8,7 +8,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
     test_set = []
     my_test_ids = []
     correct_order_test_ids = []
-    with open('features_train_vectorized.csv', 'r',newline='') as f:
+    with open('features_modified_train.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         data_y = []
@@ -29,7 +29,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
         train_set = (data_x,data_y)
         valid_set = (valid_x,valid_y)
 
-    with open('features_test_vectorized.csv', 'r',newline='') as f:
+    with open('features_modified_test.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
@@ -58,7 +58,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,my_ids,correct_ids =load_teslstra_data(False,2)
+    tr,v,test,my_ids,correct_ids =load_teslstra_data(True,1)
 
     tr_x,tr_y = tr
     v_x,v_y = v
@@ -70,11 +70,11 @@ if __name__ == '__main__':
     tr_big_y.extend(v_y)
     tr_big_y.extend(tr_y)
 
-    #test_x = test[0]
-    #test_dummy_y = [0 for _ in range(len(test_x))]
+    test_x = test[0]
+    test_dummy_y = [0 for _ in range(len(test_x))]
     xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
     xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
-    #xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+    xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
 
     print('Defining parameters ...')
     param = {}
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     #eval list is used to keep track of performance
     evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
     epochs = 1
-    num_round = 500
+    num_round = 1000
 
     best_eta,best_depth,best_reg = 0,0,0
     best_eta_round,best_depth_round,best_reg_round = 0,0,0

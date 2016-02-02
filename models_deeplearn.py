@@ -2,7 +2,7 @@ from theano import function, config, shared
 import numpy as np
 import theano.tensor as T
 
-def load_teslstra_data(train_file,test_file,remove_header=False):
+def load_teslstra_data(train_file,test_file,remove_header=False,start_col=1):
     import csv
     train_set = []
     valid_set = []
@@ -15,17 +15,17 @@ def load_teslstra_data(train_file,test_file,remove_header=False):
         data_y = []
         valid_x = []
         valid_y = []
-        valid_idx = np.random.randint(0,7000,size=(250,)).tolist()
+        valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
         for i,row in enumerate(reader):
             if remove_header and i==0:
                 continue
             if not i in valid_idx:
                 # first 2 columns are ID and location
-                data_x.append(row[2:-1])
+                data_x.append(row[start_col:-1])
                 data_y.append(row[-1])
             else:
                 # first 2 columns are ID and location
-                valid_x.append(row[2:-1])
+                valid_x.append(row[start_col:-1])
                 valid_y.append(row[-1])
 
         train_set = (data_x,data_y)
@@ -38,7 +38,7 @@ def load_teslstra_data(train_file,test_file,remove_header=False):
             if remove_header and i==0:
                 continue
             # first 2 columns are ID and location
-            data_x.append(row[2:])
+            data_x.append(row[start_col:])
             my_test_ids.append(int(row[0]))
         test_set = [data_x]
 
@@ -71,16 +71,17 @@ def load_teslstra_data(train_file,test_file,remove_header=False):
     return all_data
 
 def relu(x):
-    return T.switch(x>=0, x, 0)
+    return T.switch(x>=0, x, 0.)
 
 
 class Layer(object):
 
-    def __init__(self,in_size,out_size):
+    def __init__(self,in_size,out_size,activation='sigmoid'):
 
         rng = np.random.RandomState(0)
         init = 4 * np.sqrt(6.0 / (in_size + out_size))
         initial = np.asarray(rng.uniform(low=-init, high=init, size=(in_size, out_size)), dtype=config.floatX)
+        self.act = activation
         self.W = shared(value=initial,name='W_'+str(in_size)+'->'+str(out_size))
         self.b = shared(np.ones(out_size,dtype=config.floatX)*0.01,name='b_'+str(out_size))
         self.b_prime = shared(np.ones(in_size,dtype=config.floatX)*0.01,name='b_prime_'+str(out_size))
@@ -89,11 +90,17 @@ class Layer(object):
         self.params = [self.W, self.b, self.b_prime]
 
     def encode(self,x):
-        self.out = T.nnet.sigmoid(T.dot(x,self.W)+self.b)
+        if self.act == 'sigmoid':
+            self.out = T.nnet.sigmoid(T.dot(x,self.W)+self.b)
+        elif self.act == 'relu':
+            self.out = relu(T.dot(x,self.W)+self.b)
         return self.out
 
     def decode(self,out):
-        self.in_hat = T.nnet.sigmoid(T.dot(out,self.W.T)+self.b_prime)
+        if self.act == 'sigmoid':
+            self.in_hat = T.nnet.sigmoid(T.dot(out,self.W.T)+self.b_prime)
+        elif self.act == 'relu':
+            self.in_hat = T.log(1+T.exp(T.dot(out,self.W.T)+self.b_prime))
         return self.in_hat
 
 class SoftMax(object):
@@ -110,6 +117,7 @@ class SoftMax(object):
         self.y_pred = None
         self.error = None
         self.logloss = None
+        self.neg_log = None
         self.params = [self.W, self.b]
         self.cost = None
         self.y_mat_update = None
@@ -123,10 +131,11 @@ class SoftMax(object):
         cost_vector = -T.log(self.p_y_given_x)[T.arange(sym_y.shape[0]), sym_y]
         self.cost = T.mean(cost_vector)
 
-        y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-7
+        y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
         self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
 
         self.logloss = T.mean(T.nnet.categorical_crossentropy(self.p_y_given_x,self.y_mat_update))
+        self.neg_log = -T.mean(T.log(self.p_y_given_x)[T.arange(sym_y.shape[0]), sym_y])
 
 class LogisticRegression(object):
 
@@ -196,7 +205,7 @@ class LogisticRegression(object):
 
 class SDAE(object):
 
-    def __init__(self,in_size,out_size,hid_sizes,batch_size):
+    def __init__(self,in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act):
         self.in_size = in_size
         self.out_size = out_size
         self.layer_sizes = hid_sizes
@@ -205,8 +214,9 @@ class SDAE(object):
         self.layers = []
         self.sym_x = T.dmatrix('x')
         self.sym_y = T.ivector('y')
-        self.learn_rate = 0.4
-        self.lam = 0.1
+        self.learn_rate = learning_rate
+        self.lam = lam
+        self.act = act
         self.batch_size = batch_size
         self.pre_costs = []
         self.fine_tune_cost = None
@@ -214,22 +224,30 @@ class SDAE(object):
         self.y_pred = None
         self.softmax = SoftMax(self.layer_sizes[-1],self.out_size)
         self.disc_cost = None
+        self.neg_log = None
         self.rng = T.shared_randomstreams.RandomStreams(0)
 
     def process(self):
 
         for i in range(len(self.layer_sizes)):
             if i==0:
-                self.layers.append(Layer(self.in_size,self.layer_sizes[0]))
+                self.layers.append(Layer(self.in_size,self.layer_sizes[0],self.act))
             else:
-                self.layers.append(Layer(self.layer_sizes[i-1],self.layer_sizes[i]))
+                self.layers.append(Layer(self.layer_sizes[i-1],self.layer_sizes[i],self.act))
 
 
         for i,layer in enumerate(self.layers):
             layer_x = self.chained_out(self.layers,self.sym_x,i)
             layer_out = layer.encode(layer_x)
             layer_x_hat = layer.decode(layer_out)
-            self.pre_costs.append(T.mean(T.nnet.binary_crossentropy(layer_x_hat,layer_x)))
+            if self.act == 'sigmoid':
+                self.pre_costs.append(
+                        T.mean(T.nnet.binary_crossentropy(layer_x_hat,layer_x))
+                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0))
+            elif self.act == 'relu':
+                self.pre_costs.append(
+                        T.mean(T.sqrt(T.sum((layer_x - layer_x_hat)**2,axis=0)))
+                )
 
         soft_in = self.chained_out(self.layers,self.sym_x,len(self.layers))
         self.softmax.process(soft_in,self.sym_y)
@@ -242,7 +260,13 @@ class SDAE(object):
         for layer in reversed(self.layers):
             gen_out_hat = layer.decode(gen_out_hat)
 
-        self.disc_cost = self.softmax.cost + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
+        #self.disc_cost = self.softmax.cost + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
+        weight_sums = 0.0
+        for i in range(len(self.layer_sizes)):
+            weight_sums += T.sum(T.sum(self.layers[i].W**2, axis=1),axis=0) \
+                           + T.sum(self.layers[i].b**2) + T.sum(self.layers[i].b_prime**2)
+        self.disc_cost = self.softmax.logloss + (self.lam * weight_sums)
+        self.neg_log = self.softmax.neg_log  + (self.lam * weight_sums)
 
     #I is the index of the layer you want the out put of (index)
     def chained_out(self,layers,x,I):
@@ -284,12 +308,6 @@ class SDAE(object):
 
         return test
 
-    def test_relu(self):
-        relu_fn = function(inputs=[],outputs=relu(self.sym_x),
-                               givens={self.sym_x: np.random.rand(3,2)*-1.}
-                               )
-        print('ReLU')
-        print(relu_fn())
 
     def pre_train(self,x,y):
         idx = T.iscalar('idx')
@@ -316,7 +334,10 @@ class SDAE(object):
         for layer in self.layers:
             params.extend([layer.W,layer.b,layer.b_prime])
         params.extend([self.softmax.W,self.softmax.b])
-        updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
+        if self.act == 'sigmoid':
+            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
+        elif self.act == 'relu':
+            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.neg_log,wrt=params))]
         theano_finetune = function(inputs=[idx],outputs=self.softmax.error,updates=updates,
                                                givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                                         self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]
@@ -338,9 +359,9 @@ class SDAE(object):
 
         return validate_fn
 
-    def get_features(self,x,y):
+    def get_features(self,x,y,layer_idx):
         idx = T.iscalar('idx')
-        theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[0].out,self.sym_y],updates=None,
+        theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y],updates=None,
                                givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                        self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]})
 
@@ -361,17 +382,21 @@ class SDAE(object):
 
 if __name__ == '__main__':
 
-    remove_header = False
+    remove_header = True
     save_features = False
     pre_epochs = 5
     finetune_epochs = 500
     batch_size = 10
-    in_size = 253 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
+    in_size = 254 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
-    hid_sizes = [500,500,500]
+    hid_sizes = [1500]
 
-    train,valid,test_x,my_ids,correct_ids = load_teslstra_data('features_train_vectorized_more.csv',
-                                                               'features_test_vectorized_more.csv',remove_header)
+    lam = 0.001
+    learning_rate = 0.25
+    act = 'relu'
+
+    train,valid,test_x,my_ids,correct_ids = load_teslstra_data('features_modified_train.csv',
+                                                               'features_modified_test.csv',remove_header,1)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
@@ -381,7 +406,7 @@ if __name__ == '__main__':
     test_out_probs = []
     model = 'SDAE'
     if model == 'SDAE':
-        sdae = SDAE(in_size,out_size,hid_sizes,batch_size)
+        sdae = SDAE(in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act)
         sdae.process()
 
         #sdae.test_relu()
@@ -390,8 +415,8 @@ if __name__ == '__main__':
         finetune_func = sdae.fine_tune(train[0],train[1])
         finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
         validate_func = sdae.validate(valid[0],valid[1])
-        tr_feature_func = sdae.get_features(train[0],train[1])
-        v_features_func = sdae.get_features(valid[0],valid[1])
+        tr_feature_func = sdae.get_features(train[0],train[1],0)
+        v_features_func = sdae.get_features(valid[0],valid[1],0)
         test_func = sdae.test(test_x)
 
         #test_fn = sdae.test_decode(train[0],train[1])

@@ -266,10 +266,13 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
             if not doOnce:
                 header = ['id','loc']
-                header.extend(['feat_'+i for i in range(len(feature_vec))])
-                header.extend(['sev_'+i for i in range(len(sev_vec))])
-                header.extend(['eve_'+i for i in range(len(event_vec))])
-                header.extend(['res_'+i for i in range(len(res_vec))])
+                header.extend(['feat_'+str(i) for i in range(len(feature_vec))])
+                header.extend(['sev_'+str(i) for i in range(len(sev_vec))])
+                header.extend(['eve_'+str(i) for i in range(len(event_vec))])
+                header.extend(['res_'+str(i) for i in range(len(res_vec))])
+                if isTrain:
+                    header.append('out')
+                writer.writerow(header)
                 doOnce = True
 
             
