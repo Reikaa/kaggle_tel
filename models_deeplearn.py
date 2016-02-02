@@ -105,7 +105,7 @@ class Layer(object):
 
 class SoftMax(object):
 
-    def __init__(self,in_size,out_size):
+    def __init__(self,in_size,out_size,act):
 
         rng = np.random.RandomState(0)
         init = 4 * np.sqrt(6.0 / (in_size + out_size))
@@ -121,7 +121,7 @@ class SoftMax(object):
         self.params = [self.W, self.b]
         self.cost = None
         self.y_mat_update = None
-
+        self.act = act
 
     def process(self,sym_chained_x,sym_y):
         self.p_y_given_x = T.nnet.softmax(T.dot(sym_chained_x, self.W) + self.b)
@@ -131,7 +131,11 @@ class SoftMax(object):
         cost_vector = -T.log(self.p_y_given_x)[T.arange(sym_y.shape[0]), sym_y]
         self.cost = T.mean(cost_vector)
 
-        y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
+        if self.act == 'sigmoid':
+            y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
+        elif self.act == 'relu':
+            y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-8
+
         self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
 
         self.logloss = T.mean(T.nnet.categorical_crossentropy(self.p_y_given_x,self.y_mat_update))
@@ -222,7 +226,7 @@ class SDAE(object):
         self.fine_tune_cost = None
         self.p_y_given_x = None
         self.y_pred = None
-        self.softmax = SoftMax(self.layer_sizes[-1],self.out_size)
+        self.softmax = SoftMax(self.layer_sizes[-1],self.out_size,self.act)
         self.disc_cost = None
         self.neg_log = None
         self.rng = T.shared_randomstreams.RandomStreams(0)
@@ -389,9 +393,9 @@ if __name__ == '__main__':
     batch_size = 10
     in_size = 254 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
-    hid_sizes = [1500]
+    hid_sizes = [1000,500,250]
 
-    lam = 0.001
+    lam = 1e-5
     learning_rate = 0.25
     act = 'relu'
 
