@@ -2,12 +2,14 @@ from theano import function, config, shared
 import numpy as np
 import theano.tensor as T
 
-def load_teslstra_data():
+def load_teslstra_data(remove_header=False):
     import csv
     train_set = []
     valid_set = []
     test_set = []
-    with open('features_train.csv', 'r',newline='') as f:
+    my_test_ids = []
+    correct_order_test_ids = []
+    with open('features_train_vectorized.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         data_y = []
@@ -15,7 +17,7 @@ def load_teslstra_data():
         valid_y = []
         valid_idx = np.random.randint(0,7000,size=(500,)).tolist()
         for i,row in enumerate(reader):
-            if i==0:
+            if remove_header and i==0:
                 continue
             if not i in valid_idx:
                 # first 2 columns are ID and location
@@ -29,15 +31,24 @@ def load_teslstra_data():
         train_set = (data_x,data_y)
         valid_set = (valid_x,valid_y)
 
-    with open('features_test.csv', 'r',newline='') as f:
+    with open('features_test_vectorized.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
-            if i==0:
+            if remove_header and i==0:
                 continue
             # first 2 columns are ID and location
             data_x.append(row[2:])
+            my_test_ids.append(int(row[0]))
         test_set = [data_x]
+
+    with open('test.csv', 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0:
+                continue
+            correct_order_test_ids.append(int(row[0]))
 
     def get_shared_data(data_xy):
         data_x,data_y = data_xy
@@ -55,7 +66,7 @@ def load_teslstra_data():
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
-    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x)]
+    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids]
 
     return all_data
 
@@ -98,15 +109,25 @@ class SoftMax(object):
         self.p_y_given_x = None
         self.y_pred = None
         self.error = None
+        self.logloss = None
         self.params = [self.W, self.b]
         self.cost = None
+        self.y_mat_update = None
+        self.y_pred_mat_update = None
 
     def process(self,sym_chained_x,sym_y):
         self.p_y_given_x = T.nnet.softmax(T.dot(sym_chained_x, self.W) + self.b)
         self.y_pred = T.argmax(self.p_y_given_x, axis=1)
         self.error = T.mean(T.neq(self.y_pred, sym_y))
+
         cost_vector = -T.log(self.p_y_given_x)[T.arange(sym_y.shape[0]), sym_y]
         self.cost = T.mean(cost_vector)
+
+        y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-7
+        self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
+        y_pred_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-7
+        self.y_pred_mat_update = T.set_subtensor(y_pred_mat[T.arange(sym_y.shape[0]), self.y_pred],1)
+        self.logloss = T.mean(T.nnet.categorical_crossentropy(self.y_pred_mat_update,self.y_mat_update))
 
 class LogisticRegression(object):
 
@@ -179,13 +200,13 @@ class SDAE(object):
     def __init__(self,in_size,batch_size):
         self.in_size = in_size
         self.out_size = 3
-        self.layer_sizes = [1000,500,250]
+        self.layer_sizes = [500]
         self.denoising = False
         self.corruption_levels = [0.05,0.05,0.05,0.05]
         self.layers = []
         self.sym_x = T.dmatrix('x')
         self.sym_y = T.ivector('y')
-        self.learn_rate = 0.2
+        self.learn_rate = 0.4
         self.lam = 0.1
         self.batch_size = batch_size
         self.pre_costs = []
@@ -309,7 +330,7 @@ class SDAE(object):
 
     def validate(self,x,y):
         idx = T.iscalar('idx')
-        theano_validate_fn = function(inputs=[idx],outputs=self.softmax.error,updates=None,
+        theano_validate_fn = function(inputs=[idx],outputs=self.softmax.logloss,updates=None,
                                givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                     self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]})
 
@@ -318,18 +339,42 @@ class SDAE(object):
 
         return validate_fn
 
+    def get_features(self,x):
+        idx = T.iscalar('idx')
+        theano_get_features_fn = function(inputs=[idx],outputs=self.layers[0].out,updates=None,
+                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
+
+        def get_features_fn(batch_id):
+            return theano_get_features_fn(batch_id)
+
+        return get_features_fn
+
+    def test(self,x):
+        idx = T.iscalar('idx')
+        theano_test_fn = function(inputs=[idx],outputs=[self.softmax.y_pred,self.softmax.p_y_given_x],updates=None,
+                               givens={self.sym_x: x[idx :(idx+1)]})
+
+        def test_fn(batch_id):
+            return theano_test_fn(batch_id)
+
+        return test_fn
+
 if __name__ == '__main__':
+
+    remove_header = False
 
     pre_epochs = 5
     finetune_epochs = 500
-    batch_size = 1
-    in_size = 98
-    train,valid,test_x = load_teslstra_data()
+    batch_size = 10
+    in_size = 168 #168 for vectorized, 98 for non-vec
+    train,valid,test_x,my_ids,correct_ids = load_teslstra_data(remove_header)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
     n_test_batches = int(test_x.get_value(borrow=True).shape[0])
 
+    test_out = []
+    test_out_probs = []
     model = 'SDAE'
     if model == 'SDAE':
         sdae = SDAE(in_size,batch_size)
@@ -341,6 +386,8 @@ if __name__ == '__main__':
         finetune_func = sdae.fine_tune(train[0],train[1])
         finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
         validate_func = sdae.validate(valid[0],valid[1])
+        test_func = sdae.test(test_x)
+
         #test_fn = sdae.test_decode(train[0],train[1])
         #test_fn(0)
 
@@ -352,15 +399,10 @@ if __name__ == '__main__':
                 pre_train_cost.append(pretrain_func(b))
             print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
 
-        prev_valid_err = np.inf
+        min_valid_err = np.inf
         for epoch in range(finetune_epochs):
             from random import shuffle
             finetune_cost = []
-
-            valid_b_idx =[i for i in range(0,n_valid_batches)]
-            shuffle(valid_b_idx)
-            for b in valid_b_idx:
-                finetune_cost.append(finetune_func(b))
 
             b_idx =[i for i in range(0,n_train_batches)]
             shuffle(b_idx)
@@ -371,12 +413,21 @@ if __name__ == '__main__':
             if epoch%25==0:
                 valid_cost = []
                 for b in range(n_valid_batches):
-                    valid_cost.append(validate_func(b))
+                    err = validate_func(b)
+                    valid_cost.append(err)
+
                 curr_valid_err = np.mean(valid_cost)
                 print('Validation error: ',np.mean(valid_cost))
-                if curr_valid_err*0.9>prev_valid_err:
+                if curr_valid_err*0.95>min_valid_err:
                     break
-                prev_valid_err = curr_valid_err
+                elif  curr_valid_err<min_valid_err:
+                    min_valid_err = curr_valid_err
+
+        for b in range(n_test_batches):
+            cls,probs = test_func(b)
+            test_out.append(cls)
+            test_out_probs.append(probs[0])
+
     elif model == 'LogisticRegression':
 
         logreg = LogisticRegression(in_size,batch_size)
@@ -397,14 +448,25 @@ if __name__ == '__main__':
                     valid_cost.append(logreg_valid_func(b))
                 print('Validation error: ',np.mean(valid_cost))
 
-        test_out = []
-        for b in range(n_test_batches):
-            test_out.append(logreg_test_func(b)[0])
 
-        with open('deepnet_out.csv', 'w',newline='') as f:
-            import csv
-            writer = csv.writer(f)
-            for p in test_out:
-                row = [0,0,0]
-                row[p] = 1
-                writer.writerow(row)
+        for b in range(n_test_batches):
+            test_out = logreg_test_func(b)[0]
+
+
+    with open('deepnet_out.csv', 'w',newline='') as f:
+        import csv
+        writer = csv.writer(f)
+        for id in correct_ids:
+            c_id = my_ids.index(id)
+            row= [id,0, 0, 0]
+            row[int(test_out[int(c_id)])+1] = 1
+            writer.writerow(row)
+
+    with open('deepnet_out_probs.csv', 'w',newline='') as f:
+        import csv
+        writer = csv.writer(f)
+        for id in correct_ids:
+            c_id = my_ids.index(id)
+            probs = test_out_probs[int(c_id)]
+            row= [id,probs[0], probs[1], probs[2]]
+            writer.writerow(row)
