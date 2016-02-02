@@ -113,7 +113,7 @@ class SoftMax(object):
         self.params = [self.W, self.b]
         self.cost = None
         self.y_mat_update = None
-        self.y_pred_mat_update = None
+
 
     def process(self,sym_chained_x,sym_y):
         self.p_y_given_x = T.nnet.softmax(T.dot(sym_chained_x, self.W) + self.b)
@@ -125,9 +125,8 @@ class SoftMax(object):
 
         y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-7
         self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
-        y_pred_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-7
-        self.y_pred_mat_update = T.set_subtensor(y_pred_mat[T.arange(sym_y.shape[0]), self.y_pred],1)
-        self.logloss = T.mean(T.nnet.categorical_crossentropy(self.y_pred_mat_update,self.y_mat_update))
+
+        self.logloss = T.mean(T.nnet.categorical_crossentropy(self.p_y_given_x,self.y_mat_update))
 
 class LogisticRegression(object):
 
@@ -197,10 +196,10 @@ class LogisticRegression(object):
 
 class SDAE(object):
 
-    def __init__(self,in_size,batch_size):
+    def __init__(self,in_size,out_size,hid_sizes,batch_size):
         self.in_size = in_size
-        self.out_size = 3
-        self.layer_sizes = [500]
+        self.out_size = out_size
+        self.layer_sizes = hid_sizes
         self.denoising = False
         self.corruption_levels = [0.05,0.05,0.05,0.05]
         self.layers = []
@@ -339,10 +338,11 @@ class SDAE(object):
 
         return validate_fn
 
-    def get_features(self,x):
+    def get_features(self,x,y):
         idx = T.iscalar('idx')
-        theano_get_features_fn = function(inputs=[idx],outputs=self.layers[0].out,updates=None,
-                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
+        theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[0].out,self.sym_y],updates=None,
+                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                       self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]})
 
         def get_features_fn(batch_id):
             return theano_get_features_fn(batch_id)
@@ -362,11 +362,14 @@ class SDAE(object):
 if __name__ == '__main__':
 
     remove_header = False
-
+    save_features = False
     pre_epochs = 5
-    finetune_epochs = 500
+    finetune_epochs = 25
     batch_size = 10
     in_size = 168 #168 for vectorized, 98 for non-vec
+    out_size = 3
+    hid_sizes = [500,500,500]
+
     train,valid,test_x,my_ids,correct_ids = load_teslstra_data(remove_header)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
@@ -377,7 +380,7 @@ if __name__ == '__main__':
     test_out_probs = []
     model = 'SDAE'
     if model == 'SDAE':
-        sdae = SDAE(in_size,batch_size)
+        sdae = SDAE(in_size,out_size,hid_sizes,batch_size)
         sdae.process()
 
         #sdae.test_relu()
@@ -386,6 +389,8 @@ if __name__ == '__main__':
         finetune_func = sdae.fine_tune(train[0],train[1])
         finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
         validate_func = sdae.validate(valid[0],valid[1])
+        tr_feature_func = sdae.get_features(train[0],train[1])
+        v_features_func = sdae.get_features(valid[0],valid[1])
         test_func = sdae.test(test_x)
 
         #test_fn = sdae.test_decode(train[0],train[1])
@@ -453,15 +458,6 @@ if __name__ == '__main__':
             test_out = logreg_test_func(b)[0]
 
 
-    with open('deepnet_out.csv', 'w',newline='') as f:
-        import csv
-        writer = csv.writer(f)
-        for id in correct_ids:
-            c_id = my_ids.index(id)
-            row= [id,0, 0, 0]
-            row[int(test_out[int(c_id)])+1] = 1
-            writer.writerow(row)
-
     with open('deepnet_out_probs.csv', 'w',newline='') as f:
         import csv
         writer = csv.writer(f)
@@ -470,3 +466,30 @@ if __name__ == '__main__':
             probs = test_out_probs[int(c_id)]
             row= [id,probs[0], probs[1], probs[2]]
             writer.writerow(row)
+
+    if save_features:
+        all_features = []
+        all_outputs = []
+        for b in range(n_train_batches):
+            features, y = tr_feature_func(b)
+            all_features.extend(features)
+            all_outputs.extend(y)
+
+        for b in range(n_valid_batches):
+            features, y = v_features_func(b)
+            all_features.extend(features)
+            all_outputs.extend(y)
+
+        print('Size of features: ',len(all_features))
+        print('Size of outputs: ',len(all_outputs))
+
+
+        with open('deepnet_features.csv', 'w',newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            for feature,y in zip(all_features,all_outputs):
+                #print('Feature: ',feature)
+                row= []
+                row.extend(feature)
+                row.append(y)
+                writer.writerow(row)
