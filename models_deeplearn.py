@@ -2,20 +2,20 @@ from theano import function, config, shared
 import numpy as np
 import theano.tensor as T
 
-def load_teslstra_data(remove_header=False):
+def load_teslstra_data(train_file,test_file,remove_header=False):
     import csv
     train_set = []
     valid_set = []
     test_set = []
     my_test_ids = []
     correct_order_test_ids = []
-    with open('features_train_vectorized.csv', 'r',newline='') as f:
+    with open(train_file, 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         data_y = []
         valid_x = []
         valid_y = []
-        valid_idx = np.random.randint(0,7000,size=(500,)).tolist()
+        valid_idx = np.random.randint(0,7000,size=(250,)).tolist()
         for i,row in enumerate(reader):
             if remove_header and i==0:
                 continue
@@ -31,7 +31,7 @@ def load_teslstra_data(remove_header=False):
         train_set = (data_x,data_y)
         valid_set = (valid_x,valid_y)
 
-    with open('features_test_vectorized.csv', 'r',newline='') as f:
+    with open(test_file, 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
@@ -364,13 +364,14 @@ if __name__ == '__main__':
     remove_header = False
     save_features = False
     pre_epochs = 5
-    finetune_epochs = 25
+    finetune_epochs = 500
     batch_size = 10
-    in_size = 168 #168 for vectorized, 98 for non-vec
+    in_size = 253 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
     hid_sizes = [500,500,500]
 
-    train,valid,test_x,my_ids,correct_ids = load_teslstra_data(remove_header)
+    train,valid,test_x,my_ids,correct_ids = load_teslstra_data('features_train_vectorized_more.csv',
+                                                               'features_test_vectorized_more.csv',remove_header)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)

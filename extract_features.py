@@ -88,8 +88,9 @@ with open('log_feature.csv', 'r',newline='') as f:
 
 
 important_features=[] # based on the values count for each feature
+
 for k,v in feature_count.items():
-    if v > 50:
+    if v > 10:
         important_features.append(k)
 max_feature = len(important_features)
 
@@ -133,7 +134,10 @@ with open('event_type.csv', 'r',newline='') as f:
             elif j == 1:
                 event = int(col[11:])
                 all_event.append(event)
-        event_data[id] = [event]
+        if id in event_data:
+            event_data[id].append(event)
+        else:
+            event_data[id] = [event]
 
 max_event = np.max(all_event)
 
@@ -154,7 +158,10 @@ with open('resource_type.csv', 'r',newline='') as f:
             elif j == 1:
                 res = int(col[14:])
                 all_resource.append(res)
-        resource_data[id] = [res]
+        if id in resource_data:
+            resource_data[id].append(res)
+        else:
+            resource_data[id] = [res]
 
 max_res = np.max(all_resource)
 
@@ -179,154 +186,101 @@ for k,v in train_data.items():
     all_data[k] = v
     assert len(v)==7'''
 
-neuron_count = (1) + (max_feature+1) + (max_severity+1) + (max_event+1) + (max_res+1)
+# features start with 1
+# severity start with 1
+# event starts with 1
+# resource starts with 1
+# 2 for id and location
+neuron_count = 2 + (max_feature) + (max_severity) + (max_event) + (max_res)
 print('neuron count: ',neuron_count)
 
-def turn_to_vec(val_idx,max_val,val=1):
+def turn_to_vec(indices,max_val,val=1):
     row = [0 for _ in range(max_val+1)]
-    row[val_idx] = val
+    for i in indices:
+        row[i] = val
     return row
 
 valid_set = []
-with open('features_train_vectorized.csv', 'w',newline='') as f:
+
+
+
+def write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,isTrain=True):
+    if isTrain:
+        file_name += '_train.csv'
+    else:
+        file_name += '_test.csv'
+
+    with open(file_name, 'w',newline='') as f:
         writer = csv.writer(f)
         for k,v in train_data.items():
-            write_row=[]
-            out = v[1]
-            print('vectorizing location')
-            #loc_vec = turn_to_vec(v[0],max_loc)
-            loc_vec = [v[0]]
 
-            print('vectorizing features')
-            f_list = feature_data[k]
-            feature_vec = [0 for _ in range(max_feature+1)]
-            # list[0] is feature id and list[1] is corresponding value
-            for list in f_list:
-                if list[0] in important_features:
-                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
-                    assert feature_vec[important_features.index(list[0])]<=1
+            if 'id' in include:
+                write_row = [k]
+            else:
+                write_row = []
+
+            if 'loc' in include:
+                if 's' in include['loc'] :
+                    if 'n' in include['loc']:
+                        loc_vec = [v[0]*1.0/max_loc]
+                    elif 'v' in include['loc']:
+                        loc_vec = [v[0]]
+                else:
+                    loc_vec = turn_to_vec(v[0],max_loc)
 
 
-            print('vectorizing severity')
-            sev_val = severity_data[k]
-            sev_vec = turn_to_vec(sev_val[0],max_severity)
+            if 'feat' in include:
+                f_list = feature_data[k]
+                feature_vec = [0 for _ in range(max_feature+1)]
+                # list[0] is feature id and list[1] is corresponding value
+                for list in f_list:
+                    if list[0] in important_features:
+                        if 'n' in include['feat']:
+                            feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+                            assert feature_vec[important_features.index(list[0])]<=1
+                        else:
+                            feature_vec[important_features.index(list[0])] = list[1]
 
-            print('vectorizing event')
-            event_val = event_data[k]
-            print (event_val,',',max_event)
-            event_vec = turn_to_vec(event_val[0],max_event)
+            if 'sev' in include:
+                if 's' in include['sev']:
+                    if 'n' in include['sev']:
+                        sev_vec = [severity_data[k]*1.0/max_severity]
+                    else:
+                        sev_vec = [severity_data[k]]
+                elif 'v' in include['sev']:
+                    sev_vec = turn_to_vec(severity_data[k],max_severity)
 
-            print('vectorizing resources')
-            res_val = resource_data[k]
-            res_vec = turn_to_vec(res_val[0],max_res)
+            if 'eve' in include:
+                if 's' in include['eve']:
+                    raise NotImplementedError
+                elif 'v' in include['sev']:
+                    event_vec = turn_to_vec(event_data[k],max_event)
 
-            write_row = [k]
+            if 'res' in include:
+                if 's' in include['res']:
+                    raise NotImplementedError
+                elif 'v' in include['res']:
+                    res_vec = turn_to_vec(resource_data[k],max_res)
+
+
+
             write_row.extend(loc_vec)
             write_row.extend(feature_vec)
             write_row.extend(sev_vec)
             write_row.extend(event_vec)
             write_row.extend(res_vec)
-            write_row.extend([out])
+            if isTrain:
+                out = v[1]
+                write_row.extend([out])
+
             print('len write row: ',len(write_row))
-            assert len(write_row)==neuron_count+2
 
             writer.writerow(write_row)
 
-with open('features_train.csv', 'w',newline='') as f:
-        header = ['id','location']
-        for feat in important_features:
-            header.append('feature_'+str(feat))
-        header.extend(['severity','event','resource','output'])
-
-        writer = csv.writer(f)
-        writer.writerow(header)
-        for k,v in train_data.items():
-            write_row = [k]
-            out = v[1]
-            write_row.append(v[0]) #location
-
-            f_list = feature_data[k] #list of [feature_id, value] for a particular entry ID
-            feature_vec = [0 for _ in range(max_feature)]
-            # list[0] is feature id and list[1] is corresponding value
-            for list in f_list:
-                if list[0] in important_features:
-                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
-
-            write_row.extend(feature_vec)
-
-            write_row.append(severity_data[k][0]*1.0/max_severity)
-            write_row.append(event_data[k][0]*1.0/max_event)
-            write_row.append(resource_data[k][0]*1.0/max_res)
-            write_row.append(out)
-            writer.writerow(write_row)
-
-with open('features_test_vectorized.csv', 'w',newline='') as f:
-        writer = csv.writer(f)
-        for k,v in test_data.items():
-            write_row=[]
-
-            print('vectorizing location')
-            #loc_vec = turn_to_vec(v[0],max_loc)\
-            loc_vec = [v[0]]
-
-            print('vectorizing features')
-            f_list = feature_data[k]
-            feature_vec = [0 for _ in range(max_feature+1)]
-            # list[0] is feature id and list[1] is corresponding value
-            for list in f_list:
-                if list[0] in important_features:
-                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
-                    assert feature_vec[important_features.index(list[0])]<=1
-
-            print('vectorizing severity')
-            sev_val = severity_data[k]
-            sev_vec = turn_to_vec(sev_val[0],max_severity)
-
-            print('vectorizing event')
-            event_val = event_data[k]
-            print (event_val,',',max_event)
-            event_vec = turn_to_vec(event_val[0],max_event)
-
-            print('vectorizing resources')
-            res_val = resource_data[k]
-            res_vec = turn_to_vec(res_val[0],max_res)
-
-            write_row = [k]
-            write_row.extend(loc_vec)
-            write_row.extend(feature_vec)
-            write_row.extend(sev_vec)
-            write_row.extend(event_vec)
-            write_row.extend(res_vec)
-            print(len(write_row))
-            assert len(write_row)==neuron_count+1
-            writer.writerow(write_row)
-
-with open('features_test.csv', 'w',newline='') as f:
-
-        header = ['id','location']
-        for feat in important_features:
-            header.append('feature_'+str(feat))
-        header.extend(['severity','event','resource'])
-
-        writer = csv.writer(f)
-        writer.writerow(header)
-        for k,v in test_data.items():
-            write_row=[k]
-
-            write_row.append(v[0]) #location
-
-            f_list = feature_data[k] #list of [feature_id, value] for a particular entry ID
-            feature_vec = [0 for _ in range(max_feature)]
-            # list[0] is feature id and list[1] is corresponding value
-            for list in f_list:
-                if list[0] in important_features:
-                    feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
-
-            write_row.extend(feature_vec)
-
-            write_row.append(severity_data[k][0]*1.0/max_severity)
-            write_row.append(event_data[k][0]*1.0/max_event)
-            write_row.append(resource_data[k][0]*1.0/max_res)
-
-            #assert len(write_row)==neuron_count
-            writer.writerow(write_row)
+# s for single value
+# v for vector
+# n for nomarlize
+include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
+file_name = 'features_modified'
+write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True)
+write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False)

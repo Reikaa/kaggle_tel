@@ -8,14 +8,14 @@ def load_teslstra_data(remove_header=False,start_idx=0):
     test_set = []
     my_test_ids = []
     correct_order_test_ids = []
-    with open('deepnet_features.csv', 'r',newline='') as f:
+    with open('features_train_vectorized.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         data_y = []
         valid_x = []
         valid_y = []
-        #valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
-        valid_idx = [i for i in range(400)]
+        valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
+        #valid_idx = [i for i in range(400)]
         for i,row in enumerate(reader):
             if remove_header and i==0:
                 continue
@@ -29,7 +29,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
         train_set = (data_x,data_y)
         valid_set = (valid_x,valid_y)
 
-    '''with open('deepnet_features.csv', 'r',newline='') as f:
+    with open('features_test_vectorized.csv', 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
@@ -37,7 +37,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
                 continue
             data_x.append(np.asarray(row[start_idx:-1],dtype=np.float32).tolist())
             my_test_ids.append(int(row[0]))
-        test_set = [data_x]'''
+        test_set = [data_x]
 
     with open('test.csv', 'r',newline='') as f:
         reader = csv.reader(f)
@@ -58,7 +58,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,my_ids,correct_ids =load_teslstra_data(False,0)
+    tr,v,test,my_ids,correct_ids =load_teslstra_data(False,2)
 
     tr_x,tr_y = tr
     v_x,v_y = v

@@ -2,7 +2,7 @@ __author__ = 'Thushan Ganegedara'
 import numpy as np
 import matplotlib.pyplot as plt
 
-def load_teslstra_data():
+def load_teslstra_data(remove_header=False,start_row=2):
     import csv
     train_set = []
     valid_set = []
@@ -15,15 +15,15 @@ def load_teslstra_data():
         valid_y = []
         valid_idx = np.random.randint(0,7000,size=(500,)).tolist()
         for i,row in enumerate(reader):
-            if i==0:
+            if remove_header and i==0:
                 continue
             if not i in valid_idx:
                 # first 2 columns are ID and location
-                data_x.append(np.asarray(row[2:-1],dtype=np.float32).tolist())
+                data_x.append(np.asarray(row[start_row:-1],dtype=np.float32).tolist())
                 data_y.append(int(row[-1]))
             else:
                 # first 2 columns are ID and location
-                valid_x.append(np.asarray(row[2:-1],dtype=np.float32).tolist())
+                valid_x.append(np.asarray(row[start_row:-1],dtype=np.float32).tolist())
                 valid_y.append(int(row[-1]))
 
         train_set = (data_x,data_y)
@@ -33,10 +33,10 @@ def load_teslstra_data():
         reader = csv.reader(f)
         data_x = []
         for i,row in enumerate(reader):
-            if i==0:
+            if remove_header and i==0:
                 continue
             # first 2 columns are ID and location
-            data_x.append(np.asarray(row[2:],dtype=np.float32))
+            data_x.append(np.asarray(row[start_row:],dtype=np.float32))
         test_set = [data_x]
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
@@ -87,7 +87,24 @@ def plot(fig_id,sub_row,sub_col,X,Y,titles,fontsize='large'):
         axes.append(ax)
 
     plt.show()
+
+def get_location_output_relation(train_x,train_y,valid_x,valid_y):
+
+    outputs = [[],[],[]]
+    for i in range(3):
+        tr_i_indexes = [idx for idx,val in enumerate(train_y) if val==i]
+        v_i_indexes = [idx for idx,val in enumerate(valid_y) if val==i]
+
+        for tr_idx in tr_i_indexes:
+            outputs[i].append(train_x[tr_idx][1])
+
+        for v_idx in v_i_indexes:
+            outputs[i].append(valid_x[v_idx][1])
+        print(i, ' Values: ',outputs[i])
+        print(i,': ',np.mean(outputs[i]))
+
 if __name__ == '__main__':
 
-    all_data = load_teslstra_data()
-    plot_mean_against_output(all_data[0][0],all_data[0][1],all_data[1][0],all_data[1][1])
+    all_data = load_teslstra_data(True,0)
+    #plot_mean_against_output(all_data[0][0],all_data[0][1],all_data[1][0],all_data[1][1])
+    get_location_output_relation(all_data[0][0],all_data[0][1],all_data[1][0],all_data[1][1])
