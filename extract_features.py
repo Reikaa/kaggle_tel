@@ -204,7 +204,7 @@ valid_set = []
 
 
 
-def write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,isTrain=True):
+def write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,isTrain=True,noise=False):
     if isTrain:
         file_name += '_train.csv'
     else:
@@ -281,6 +281,10 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             write_row.extend(sev_vec)
             write_row.extend(event_vec)
             write_row.extend(res_vec)
+
+            if noise:
+                noise_vec = np.random.binomial(1,0.25,(len(write_row)))*np.random.random((len(write_row)))*0.01
+                write_row[1:] = [x+y for x,y in zip(write_row[1:],noise_vec.tolist())]
             if isTrain:
                 out = v[1]
                 write_row.extend([out])
@@ -294,5 +298,5 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 # n for nomarlize
 include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
 file_name = 'features_modified'
-write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True)
-write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False)
+write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
+write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)

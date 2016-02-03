@@ -55,10 +55,118 @@ def load_teslstra_data(remove_header=False,start_idx=0):
 
     return all_data
 
+def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
+
+    '''
+            0th class 6.58, 1st class 2.58, 2nd class 1 (ratios)
+    '''
+    import csv
+    train_set = []
+    valid_set = []
+    test_set = []
+    my_test_ids = []
+    correct_order_test_ids = []
+    with open(train_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+        data_x = []
+        data_y = []
+        valid_x,valid_y = [],[]
+        data_x_v2 = [[],[],[]]
+
+
+        for i,row in enumerate(reader):
+            if remove_header and i==0:
+                continue
+
+            # first 2 columns are ID and location
+            output = int(row[-1])
+            data_x_v2[output].append(row[start_col:-1])
+
+        full_rounds = 1
+        orig_class_2_length = len(data_x_v2[2])
+        for _ in range(orig_class_2_length):
+            rand = np.random.random()
+            if rand>0.9 or len(valid_x)>100:
+                for _ in range(6) :
+                    data_x.append(data_x_v2[0][-1])
+                    data_x_v2[0].pop()
+                    data_y.append(0)
+                for _ in range(2):
+                    data_x.append(data_x_v2[1][-1])
+                    data_x_v2[1].pop()
+                    data_y.append(1)
+
+                data_x.append(data_x_v2[2][-1])
+                data_x_v2[2].pop()
+                data_y.append(2)
+                full_rounds += 1
+
+            elif len(valid_x)<100 and rand<0.1:
+                for _ in range(6) :
+                    valid_x.append(data_x_v2[0][-1])
+                    data_x_v2[0].pop()
+                    valid_y.append(0)
+                for _ in range(2):
+                    valid_x.append(data_x_v2[1][-1])
+                    data_x_v2[1].pop()
+                    valid_y.append(1)
+
+                valid_x.append(data_x_v2[2][-1])
+                data_x_v2[2].pop()
+                valid_y.append(2)
+                full_rounds += 1
+
+        for j in range(len(data_x_v2[0])):
+            data_x.append(data_x_v2[0][j])
+            data_y.append(0)
+
+        for j in range(len(data_x_v2[1])):
+            data_x.append(data_x_v2[1][j])
+            data_y.append(1)
+
+        for j in range(len(data_x_v2[2])):
+            data_x.append(data_x_v2[2][j])
+            data_y.append(2)
+
+        train_set = (data_x,data_y)
+        valid_set = (valid_x,valid_y)
+
+    with open(test_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+        data_x = []
+        for i,row in enumerate(reader):
+            if remove_header and i==0:
+                continue
+            # first 2 columns are ID and location
+            data_x.append(row[start_col:])
+            my_test_ids.append(int(row[0]))
+        test_set = [data_x]
+
+
+    with open('test.csv', 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0:
+                continue
+            correct_order_test_ids.append(int(row[0]))
+
+    train_x,train_y = train_set
+    valid_x,valid_y = valid_set
+    test_x = np.asarray(test_set[0])
+
+    print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
+    print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
+    print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
+
+    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids]
+
+    return all_data
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,my_ids,correct_ids =load_teslstra_data(True,1)
+    tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',False,1)
+    #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
     v_x,v_y = v
@@ -70,7 +178,7 @@ if __name__ == '__main__':
     tr_big_y.extend(v_y)
     tr_big_y.extend(tr_y)
 
-    test_x = test[0]
+    test_x = test
     test_dummy_y = [0 for _ in range(len(test_x))]
     xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
     xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
@@ -82,11 +190,11 @@ if __name__ == '__main__':
     param['objective'] = 'multi:softprob'
     # scale weight of positive examples
     param['booster'] = 'gbtree'
-    param['eta'] = 0.1  # high eta values give better perf
-    param['max_depth'] = 5
+    param['eta'] = 0.2  # high eta values give better perf
+    param['max_depth'] = 4
     param['silent'] = 1
-    param['lambda'] = 0.99
-    param['alpha'] = 0.99
+    param['lambda'] = 0.95
+    param['alpha'] = 0.95
     param['nthread'] = 4
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
@@ -94,17 +202,17 @@ if __name__ == '__main__':
     #eval list is used to keep track of performance
     evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
     epochs = 1
-    num_round = 1000
+    num_round = 100
 
     best_eta,best_depth,best_reg = 0,0,0
     best_eta_round,best_depth_round,best_reg_round = 0,0,0
-    print('\nCross validation ...')
+    '''('\nCross validation ...')
     #history = xgb.cv(param, xg_train, num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
     # hitory._get_values is a num_round x 4 matrix
     #print(history)
 
     # Cross validate eta
-    etas = [0.01, 0.1, 0.2]
+    etas = [0.2, 0.5, 0.9]
     min_idx_eta = 0
     min_mean = np.inf
     for i,e in enumerate(etas):
@@ -125,7 +233,7 @@ if __name__ == '__main__':
     param['eta']=best_eta
 
         # Cross validate max_depth
-    max_depths = [5, 10, 20]
+    max_depths = [3, 4, 5]
     min_idx_depth = 0
     min_mean = np.inf
     for i,d in enumerate(max_depths):
@@ -146,7 +254,7 @@ if __name__ == '__main__':
     param['max_depth']= best_depth
     # Cross validate alpha lambda
 
-    reg = [[0.9,0.9], [0.95,0.95], [0.99,0.99]]
+    reg = [[0.1,0.1],[0.5,0.5],[0.95,0.95]]
     min_idx_reg = 0
     min_mean = np.inf
     for i,arr in enumerate(reg):
@@ -170,10 +278,10 @@ if __name__ == '__main__':
 
     print('Best eta: ',best_eta,' Round: ',best_eta_round)
     print('Best depth: ',best_depth, ' Round: ',best_depth_round)
-    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
+    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)'''
 
 
-    '''print('\nTraining ...')
+    print('\nTraining ...')
 
     bst = xgb.train(param, xg_train, num_round, evallist)
     ptrain = bst.predict(xg_train)
@@ -196,6 +304,6 @@ if __name__ == '__main__':
             c_id = my_ids.index(id)
             probs = pred_test[int(c_id)]
             row = [id,probs[0], probs[1], probs[2]]
-            writer.writerow(row)'''
+            writer.writerow(row)
 
 

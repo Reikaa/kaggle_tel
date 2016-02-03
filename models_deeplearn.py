@@ -15,6 +15,7 @@ def load_teslstra_data(train_file,test_file,remove_header=False,start_col=1):
         data_y = []
         valid_x = []
         valid_y = []
+
         valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
         for i,row in enumerate(reader):
             if remove_header and i==0:
@@ -67,6 +68,145 @@ def load_teslstra_data(train_file,test_file,remove_header=False,start_col=1):
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
     all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids]
+
+    return all_data
+
+def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
+
+    '''
+            0th class 6.58, 1st class 2.58, 2nd class 1 (ratios)
+    '''
+    import csv
+    train_set = []
+    valid_set = []
+    test_set = []
+    my_train_ids = []
+    my_valid_ids = []
+    my_train_ids_v2 = [[],[],[]]
+    my_test_ids = []
+    correct_order_test_ids = []
+
+    with open(train_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+        data_x = []
+        data_y = []
+        valid_x,valid_y = [],[]
+        data_x_v2 = [[],[],[]]
+
+
+        for i,row in enumerate(reader):
+            if remove_header and i==0:
+                continue
+
+            # first 2 columns are ID and location
+            output = int(row[-1])
+            data_x_v2[output].append(row[start_col:-1])
+            my_train_ids_v2[output].append(row[0])
+
+        valid_idx = np.random.randint(0,len(data_x_v2[2]),size=(100,)).tolist()
+
+        full_rounds = 1
+        orig_class_2_length = len(data_x_v2[2])
+        for _ in range(orig_class_2_length):
+            rand = np.random.random()
+            if rand>0.9 or len(valid_x)>100:
+                for _ in range(6) :
+                    data_x.append(data_x_v2[0][-1])
+                    data_x_v2[0].pop()
+                    data_y.append(0)
+                    my_train_ids.append(my_train_ids_v2[0][-1])
+                    my_train_ids_v2[0].pop()
+
+                for _ in range(2):
+                    data_x.append(data_x_v2[1][-1])
+                    data_x_v2[1].pop()
+                    data_y.append(1)
+                    my_train_ids.append(my_train_ids_v2[1][-1])
+                    my_train_ids_v2[1].pop()
+
+                data_x.append(data_x_v2[2][-1])
+                data_x_v2[2].pop()
+                data_y.append(2)
+                my_train_ids.append(my_train_ids_v2[2][-1])
+                my_train_ids_v2[2].pop()
+                full_rounds += 1
+
+            elif len(valid_x)<100 and rand<0.1:
+                for _ in range(6) :
+                    valid_x.append(data_x_v2[0][-1])
+                    data_x_v2[0].pop()
+                    valid_y.append(0)
+                    my_valid_ids.append(my_train_ids_v2[0][-1])
+                    my_train_ids_v2[0].pop()
+                for _ in range(2):
+                    valid_x.append(data_x_v2[1][-1])
+                    data_x_v2[1].pop()
+                    valid_y.append(1)
+                    my_valid_ids.append(my_train_ids_v2[1][-1])
+                    my_train_ids_v2[1].pop()
+
+                valid_x.append(data_x_v2[2][-1])
+                data_x_v2[2].pop()
+                valid_y.append(2)
+                my_valid_ids.append(my_train_ids_v2[2][-1])
+                my_train_ids_v2[2].pop()
+
+                full_rounds += 1
+
+        for j in range(len(data_x_v2[0])):
+            data_x.append(data_x_v2[0][j])
+            data_y.append(0)
+            my_train_ids.append(my_train_ids_v2[0][j])
+
+        for j in range(len(data_x_v2[1])):
+            data_x.append(data_x_v2[1][j])
+            data_y.append(1)
+            my_train_ids.append(my_train_ids_v2[1][j])
+
+        for j in range(len(data_x_v2[2])):
+            data_x.append(data_x_v2[2][j])
+            data_y.append(2)
+            my_train_ids.append(my_train_ids_v2[2][j])
+
+        train_set = (data_x,data_y)
+        valid_set = (valid_x,valid_y)
+
+    with open(test_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+        data_x = []
+        for i,row in enumerate(reader):
+            if remove_header and i==0:
+                continue
+            # first 2 columns are ID and location
+            data_x.append(row[start_col:])
+            my_test_ids.append(int(row[0]))
+        test_set = [data_x]
+
+    with open('test.csv', 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0:
+                continue
+            correct_order_test_ids.append(int(row[0]))
+
+    def get_shared_data(data_xy):
+        data_x,data_y = data_xy
+        shared_x = shared(value=np.asarray(data_x,dtype=config.floatX),borrow=True)
+        shared_y = shared(value=np.asarray(data_y,dtype=config.floatX),borrow=True)
+
+        return shared_x,T.cast(shared_y,'int32')
+
+
+    train_x,train_y = get_shared_data(train_set)
+    valid_x,valid_y = get_shared_data(valid_set)
+    test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
+
+    print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
+    print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
+    print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
+
+    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
 
     return all_data
 
@@ -322,7 +462,7 @@ class SDAE(object):
         idx = T.iscalar('idx')
         greedy_pretrain_funcs = []
         for i,layer in enumerate(self.layers):
-            print('compiling function for layer ',i)
+            print('compiling pretrain function for layer ',i)
             updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(self.pre_costs[i],wrt=layer.params))]
             greedy_pretrain_funcs.append(function(inputs=[idx],outputs=self.pre_costs[i],updates=updates,
                                                givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
@@ -372,11 +512,118 @@ class SDAE(object):
 
         return validate_fn
 
-    def get_features(self,x,y,layer_idx):
+    def cross_validate(self,x,y,folds,ft_epochs,pre_epochs):
+        print('\n Cross Validation ... with ', folds, ' folds \n')
+        print('X: ', x.shape[0], ' Y: ',y.shape[0])
+
+        from math import floor
+        # should get all x and all y (numpy)
+        x_size = x.shape[0]
+        tr_size = floor(x.shape[0]*(folds-1)*1.0/folds)
+        v_size = floor(x.shape[0]*1.0/folds)
+
+        tr_batches = floor(tr_size/self.batch_size)
+        v_batches = floor(v_size/self.batch_size)
+        print('Train size: ',tr_size, ' Valid size: ', v_size)
+        print('Train batches: ',tr_batches, ' Valid batches: ', v_batches)
+
         idx = T.iscalar('idx')
-        theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y],updates=None,
-                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
-                                       self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]})
+
+        min_ft_all,min_v_all = [],[]
+        best_ft_epochs,best_v_epochs = [],[]
+        tolerance = 10
+        for i in range(folds):
+            print('\n------------  Fold ',i,' ----------------\n')
+            np_train_x,np_train_y = [],[]
+            np_train_x.extend(x[0:i*v_size])
+            np_train_x.extend(x[(i+1)*v_size:x_size])
+            np_train_y.extend(y[0:i*v_size])
+            np_train_y.extend(y[(i+1)*v_size:x_size])
+
+            np_valid_x, np_valid_y = [],[]
+            np_valid_x.extend(x[i*v_size:(i+1)*v_size])
+            np_valid_y.extend(y[i*v_size:(i+1)*v_size])
+
+            def get_shared_data(data_xy):
+                data_x,data_y = data_xy
+                shared_x = shared(value=np.asarray(data_x,dtype=config.floatX),borrow=True)
+                shared_y = shared(value=np.asarray(data_y,dtype=config.floatX),borrow=True)
+
+                return shared_x,T.cast(shared_y,'int32')
+
+            train_x,train_y = get_shared_data((np_train_x,np_train_y))
+            valid_x,valid_y = get_shared_data((np_valid_x,np_valid_y))
+
+            min_ft_cost,min_v_cost = np.inf,np.inf
+            best_ft_ep,best_v_ep = 0,0
+
+            finetune_fn=self.fine_tune(train_x,train_y)
+            validate_fn=self.validate(valid_x,valid_y)
+
+            if i==0:
+                pretrain_fn = self.pre_train(train_x,train_y)
+                for pe in range(pre_epochs):
+                    for b in range(n_train_batches):
+                        pretrain_fn(b)
+
+            no_increase = 0
+            for e in range(ft_epochs):
+                ft_cost_list = []
+                for b in range(tr_batches):
+                    ft_cost_list.append(finetune_fn(b))
+
+                if np.mean(ft_cost_list) < min_ft_cost:
+                    min_ft_cost = np.mean(ft_cost_list)
+                    best_ft_ep = e
+
+                v_cost_list = [] # all the v costs for all batches for given epoch and fold
+                for b in range(v_batches):
+                    v_cost_list.append(validate_fn(b))
+
+                #update min value if new is minimum
+                if np.mean(v_cost_list)*1.001<min_v_cost:
+                    no_increase = 0
+                    min_v_cost = np.mean(v_cost_list)
+                    best_v_ep = e
+                else:
+                    no_increase += 1
+
+                if no_increase > tolerance:
+                    break
+
+                print('For epoch ',e,' finetune cost: ',np.mean(ft_cost_list),', valid cost: ',np.mean(v_cost_list))
+
+            min_ft_all.append(np.mean(min_ft_cost))
+            min_v_all.append(np.mean(min_v_cost))
+            best_ft_epochs.append(best_ft_ep)
+            best_v_epochs.append(best_v_ep)
+
+        print('\nDone Cross Validation ... \n')
+        print(min_ft_all)
+        print(best_ft_epochs)
+        print(min_v_all)
+        print(best_v_epochs)
+
+        return np.mean(min_ft_all),np.mean(best_ft_epochs),np.mean(min_v_all),np.mean(best_v_epochs)
+
+    def get_features(self,x,y,ids,layer_idx,isTest=False):
+        idx = T.iscalar('idx')
+        b_size = self.batch_size
+        input_ids = T.iscalar('input_ids')
+
+        if isTest:
+            b_size = 1
+
+        if not isTest:
+            theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y,input_ids],updates=None,
+                               givens={self.sym_x: x[idx * b_size:(idx+1) * b_size],
+                                       self.sym_y: y[idx * b_size:(idx+1) *b_size],
+                                       input_ids: ids[idx * b_size:(idx+1) *b_size]})
+        if isTest:
+            theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y,input_ids],updates=None,
+                               givens={self.sym_x: x[idx * b_size:(idx+1) * b_size],
+                                       self.sym_y: 0,
+                                       input_ids: ids[idx * b_size:(idx+1) *b_size]})
 
         def get_features_fn(batch_id):
             return theano_get_features_fn(batch_id)
@@ -397,21 +644,23 @@ if __name__ == '__main__':
 
     remove_header = True
 
-    save_features = False
-    save_features_idx = 2
+    save_features = True
+    save_features_idx = 0
+
+    crossValidate = False
 
     # seems pretraining helps to achieve a lower finetune error at the beginning
     isPretrained = True
-    pre_epochs = 5
-    finetune_epochs = 500
+    pre_epochs = 25
+    finetune_epochs = 250
 
     batch_size = 10
 
     in_size = 254 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
-    hid_sizes = [1500,1500,1500]
+    hid_sizes = [250]
 
-    lam = 0.01
+    lam = 0.0
     learning_rate = 0.25
     # relu is only for pretraining
     act = 'relu'
@@ -424,8 +673,8 @@ if __name__ == '__main__':
     print('------------------------------------------------------------------')
     print()
 
-    train,valid,test_x,my_ids,correct_ids = load_teslstra_data('features_modified_train.csv',
-                                                               'features_modified_test.csv',remove_header,1)
+    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_noised__train.csv',
+                                                               'features_modified_noised__test.csv',remove_header,1)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
@@ -437,116 +686,140 @@ if __name__ == '__main__':
     if model == 'SDAE':
         sdae = SDAE(in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act)
         sdae.process()
-
-        #sdae.test_relu()
-
-        pretrain_func = sdae.pre_train(train[0],train[1])
-        finetune_func = sdae.fine_tune(train[0],train[1])
-        finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
-        validate_func = sdae.validate(valid[0],valid[1])
-        if save_features:
-            tr_feature_func = sdae.get_features(train[0],train[1],save_features_idx)
-            v_features_func = sdae.get_features(valid[0],valid[1],save_features_idx)
         test_func = sdae.test(test_x)
 
-        #test_fn = sdae.test_decode(train[0],train[1])
-        #test_fn(0)
+        if not crossValidate:
+            pretrain_func = sdae.pre_train(train[0],train[1])
+            finetune_func = sdae.fine_tune(train[0],train[1])
+            finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
+            validate_func = sdae.validate(valid[0],valid[1])
 
-        #test_cost = sdae.test_cost(train[0],train[1])
-        #test_cost(0)
-        if isPretrained:
-            for epoch in range(pre_epochs):
-                pre_train_cost = []
-                for b in range(n_train_batches):
-                    pre_train_cost.append(pretrain_func(b))
-                print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
+            if save_features:
 
-        min_valid_err = np.inf
-        for epoch in range(finetune_epochs):
-            from random import shuffle
-            finetune_cost = []
+                my_train_id_tensor = shared(value=np.asarray(train_ids,dtype=config.floatX),borrow=True)
+                my_train_id_int_tensor =  T.cast(my_train_id_tensor,'int32')
 
-            b_idx =[i for i in range(0,n_train_batches)]
-            shuffle(b_idx)
-            for b in b_idx:
-                finetune_cost.append(finetune_func(b))
-            print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
+                my_valid_id_tensor = shared(value=np.asarray(valid_ids,dtype=config.floatX),borrow=True)
+                my_valid_id_int_tensor =  T.cast(my_valid_id_tensor,'int32')
 
-            if epoch%25==0:
-                valid_cost = []
-                for b in range(n_valid_batches):
-                    err = validate_func(b)
-                    valid_cost.append(err)
+                my_test_id_tensor = shared(value=np.asarray(my_test_ids,dtype=config.floatX),borrow=True)
+                my_test_id_int_tensor = T.cast(my_test_id_tensor,'int32')
 
-                curr_valid_err = np.mean(valid_cost)
-                print('Validation error: ',np.mean(valid_cost))
-                if curr_valid_err*0.95>min_valid_err:
-                    break
-                elif  curr_valid_err<min_valid_err:
-                    min_valid_err = curr_valid_err
+                tr_feature_func = sdae.get_features(train[0],train[1],my_train_id_int_tensor,save_features_idx,False)
+                v_features_func = sdae.get_features(valid[0],valid[1],my_valid_id_int_tensor,save_features_idx,False)
+
+                ts_features_func = sdae.get_features(test_x,None,my_test_id_int_tensor,save_features_idx,True)
+
+
+            if isPretrained:
+                for epoch in range(pre_epochs):
+                    pre_train_cost = []
+                    for b in range(n_train_batches):
+                        pre_train_cost.append(pretrain_func(b))
+                    print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
+
+            '''min_valid_err = np.inf
+            for epoch in range(finetune_epochs):
+                from random import shuffle
+                finetune_cost = []
+
+                b_idx =[i for i in range(0,n_train_batches)]
+                shuffle(b_idx)
+                for b in b_idx:
+                    finetune_cost.append(finetune_func(b))
+                print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
+
+                if epoch%25==0:
+                    valid_cost = []
+                    for b in range(n_valid_batches):
+                        err = validate_func(b)
+                        valid_cost.append(err)
+
+                    curr_valid_err = np.mean(valid_cost)
+                    print('Validation error: ',np.mean(valid_cost))
+                    if curr_valid_err*0.95>min_valid_err:
+                        break
+                    elif  curr_valid_err<min_valid_err:
+                        min_valid_err = curr_valid_err'''
+
+        else:
+
+            sym_y = T.ivector('y')
+            get_train_y = function(inputs=[],outputs=sym_y, givens={sym_y: train[1]})
+            get_valid_y = function(inputs=[],outputs=sym_y, givens={sym_y: valid[1]})
+
+            all_x = train[0].get_value().tolist()
+            all_x.extend(valid[0].get_value().tolist())
+
+            all_y = get_train_y().tolist()
+            all_y.extend(get_valid_y().tolist())
+
+            cv_vals = sdae.cross_validate(np.asarray(all_x,dtype=config.floatX), np.asarray(all_y),10,finetune_epochs,pre_epochs)
+
+            print('Mean(train): ',cv_vals[0],' , Mean(valid): ',cv_vals[2])
+            print('Epocs(train): ', cv_vals[1],' , Epochs(valid): ',cv_vals[3])
 
         for b in range(n_test_batches):
             cls,probs = test_func(b)
             test_out.append(cls)
             test_out_probs.append(probs[0])
 
-    elif model == 'LogisticRegression':
-
-        logreg = LogisticRegression(in_size,batch_size)
-        logreg.process()
-        logreg_train_func = logreg.train(train[0],train[1])
-        logreg_valid_func = logreg.validate(valid[0],valid[1])
-        logreg_test_func = logreg.test(test_x)
-
-        for epoch in range(finetune_epochs):
-            finetune_cost = []
-            for b in range(n_train_batches):
-                finetune_cost.append(logreg_train_func(b))
-            print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
-
-            if epoch%10==0:
-                valid_cost = []
-                for b in range(n_valid_batches):
-                    valid_cost.append(logreg_valid_func(b))
-                print('Validation error: ',np.mean(valid_cost))
-
-
-        for b in range(n_test_batches):
-            test_out = logreg_test_func(b)[0]
-
-
+    print('\n Saving out probabilities')
     with open('deepnet_out_probs.csv', 'w',newline='') as f:
         import csv
         writer = csv.writer(f)
         for id in correct_ids:
-            c_id = my_ids.index(id)
+            c_id = my_test_ids.index(id)
             probs = test_out_probs[int(c_id)]
             row= [id,probs[0], probs[1], probs[2]]
             writer.writerow(row)
 
     if save_features:
-        all_features = []
-        all_outputs = []
+        all_tr_features = []
+        all_tr_outputs = []
+        all_ts_features = []
         for b in range(n_train_batches):
-            features, y = tr_feature_func(b)
-            all_features.extend(features)
-            all_outputs.extend(y)
+            features, y, ids = tr_feature_func(b)
+            temp = [ids]
+
+            temp = np.concatenate((np.reshape(ids,(ids.shape[0],1)),features),axis=1)
+
+            all_tr_features.extend(temp.tolist())
+            all_tr_outputs.extend(y)
+
+        print('Size train features: ',len(all_tr_features),' x ',len(all_tr_features[0]))
 
         for b in range(n_valid_batches):
-            features, y = v_features_func(b)
-            all_features.extend(features)
-            all_outputs.extend(y)
+            features, y, ids = v_features_func(b)
+            temp = [ids]
+            temp = np.concatenate((np.reshape(ids,(ids.shape[0],1)),features),axis=1)
 
-        print('Size of features: ',len(all_features))
-        print('Size of outputs: ',len(all_outputs))
+            all_tr_features.extend(temp.tolist())
+            all_tr_outputs.extend(y)
 
+        print('Size train+valid features: ',len(all_tr_features),' x ',len(all_tr_features[0]))
 
-        with open('deepnet_features_'+str(save_features_idx)+'.csv', 'w',newline='') as f:
+        for b in range(n_test_batches):
+            features, y, id = ts_features_func(b)
+            row = [id[0]]
+            row.extend(features[0])
+            all_ts_features.append(row)
+        print('Size test features: ',len(all_ts_features),' x ',len(all_ts_features[0]))
+
+        with open('deepnet_features_train_'+str(save_features_idx)+'.csv', 'w',newline='') as f:
             import csv
             writer = csv.writer(f)
-            for feature,y in zip(all_features,all_outputs):
+            for feature,y in zip(all_tr_features,all_tr_outputs):
                 #print('Feature: ',feature)
                 row= []
                 row.extend(feature)
                 row.append(y)
+                writer.writerow(row)
+
+        with open('deepnet_features_test_'+str(save_features_idx)+'.csv', 'w',newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            for feature in all_ts_features:
+                row= []
+                row.extend(feature)
                 writer.writerow(row)
