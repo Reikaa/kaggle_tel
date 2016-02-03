@@ -86,7 +86,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
         orig_class_2_length = len(data_x_v2[2])
         for _ in range(orig_class_2_length):
             rand = np.random.random()
-            if rand>0.9 or len(valid_x)>100:
+            if rand>0.9 or len(valid_x)>300:
                 for _ in range(6) :
                     data_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
@@ -101,8 +101,8 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 data_y.append(2)
                 full_rounds += 1
 
-            elif len(valid_x)<100 and rand<0.1:
-                for _ in range(6) :
+            elif len(valid_x)<300 and rand<0.1:
+                for _ in range(2) :
                     valid_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
                     valid_y.append(0)
@@ -110,10 +110,10 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                     valid_x.append(data_x_v2[1][-1])
                     data_x_v2[1].pop()
                     valid_y.append(1)
-
-                valid_x.append(data_x_v2[2][-1])
-                data_x_v2[2].pop()
-                valid_y.append(2)
+                for _ in range(2):
+                    valid_x.append(data_x_v2[2][-1])
+                    data_x_v2[2].pop()
+                    valid_y.append(2)
                 full_rounds += 1
 
         for j in range(len(data_x_v2[0])):
@@ -165,7 +165,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',False,1)
+    tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
@@ -206,7 +206,9 @@ if __name__ == '__main__':
 
     best_eta,best_depth,best_reg = 0,0,0
     best_eta_round,best_depth_round,best_reg_round = 0,0,0
-    '''('\nCross validation ...')
+
+
+    ('\nCross validation ...')
     #history = xgb.cv(param, xg_train, num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
     # hitory._get_values is a num_round x 4 matrix
     #print(history)
@@ -278,10 +280,10 @@ if __name__ == '__main__':
 
     print('Best eta: ',best_eta,' Round: ',best_eta_round)
     print('Best depth: ',best_depth, ' Round: ',best_depth_round)
-    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)'''
+    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
 
 
-    print('\nTraining ...')
+    '''print('\nTraining ...')
 
     bst = xgb.train(param, xg_train, num_round, evallist)
     ptrain = bst.predict(xg_train)
@@ -304,6 +306,6 @@ if __name__ == '__main__':
             c_id = my_ids.index(id)
             probs = pred_test[int(c_id)]
             row = [id,probs[0], probs[1], probs[2]]
-            writer.writerow(row)
+            writer.writerow(row)'''
 
 

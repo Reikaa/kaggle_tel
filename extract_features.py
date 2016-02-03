@@ -293,10 +293,69 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
             writer.writerow(write_row)
 
+def select_features(train_file,test_file,remove_header):
+
+    tr_ids, train_data_x,train_data_y = [],[],[]
+    ts_ids, test_data_x,test_data_y = [],[],[]
+
+    with open(train_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0 and remove_header:
+                continue
+            else:
+                tr_ids.append(int(row[0]))
+                train_data_x.append([float(x) for x in row[1:-1]])
+                train_data_y.append(int(row[-1]))
+
+    with open(test_file, 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0 and remove_header:
+                continue
+            else:
+                ts_ids.append(int(row[0]))
+                test_data_x.append([float(x) for x in row[1:]])
+
+    from sklearn.svm import LinearSVC
+    from sklearn.feature_selection import SelectFromModel
+
+    lsvc = LinearSVC(C=0.3, penalty="l1", dual=False).fit(
+            np.asarray(train_data_x,dtype=np.float32),np.asarray(train_data_y,dtype=np.int32)
+    )
+    model = SelectFromModel(lsvc, prefit=True)
+    train_x_new = model.transform(np.asarray(train_data_x,dtype=np.float32))
+    test_x_new = model.transform(np.asarray(test_data_x,dtype=np.float32))
+
+
+    with open('features_svm_train.csv', 'w',newline='') as f:
+        writer = csv.writer(f)
+
+        for i,tr in enumerate(train_x_new.tolist()):
+            tr_row = [tr_ids[i]]
+            tr_row.extend(tr)
+            tr_row.append(train_data_y[i])
+            writer.writerow(tr_row)
+
+    with open('features_svm_test.csv', 'w',newline='') as f:
+        writer = csv.writer(f)
+
+        for i,ts in enumerate(test_x_new.tolist()):
+            ts_row = [ts_ids[i]]
+            ts_row.extend(ts)
+
+            writer.writerow(ts_row)
+
+
+
 # s for single value
 # v for vector
 # n for nomarlize
 include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
 file_name = 'features_modified'
-write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
-write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
+#write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
+#write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
+
+select_features('features_modified_train.csv','features_modified_test.csv',True)

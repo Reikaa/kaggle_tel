@@ -34,11 +34,16 @@ with open('deepnet_out_probs.csv', 'r',newline='') as f:
 
 ens_probs = collections.defaultdict()
 for k,v in probs_1.items():
-    if k in ids_with_over_90_1 or k in ids_with_over_90_2:
-        vec1 = [x * (acc_1/(acc_1+acc_2)) for x in probs_1[k] ]
-        vec2 = [y * (acc_2/(acc_1+acc_2)) for y in probs_2[k]]
+    if k in ids_with_over_90_1 and k in ids_with_over_90_2:
+        idx_1 = np.argmax(probs_1[k])
+        idx_2 = np.argmax(probs_2[k])
+        if idx_1==idx_2:
+            vec3 = [0,0,0]
+            vec3[idx_1] = 1
+        #vec1 = [x * (acc_1/(acc_1+acc_2)) for x in probs_1[k] ]
+        #vec2 = [y * (acc_2/(acc_1+acc_2)) for y in probs_2[k]]
 
-        vec3 = [x+y for x,y in zip(vec1,vec2)]
+        #vec3 = [x+y for x,y in zip(vec1,vec2)]
     else:
         vec3 = v
 

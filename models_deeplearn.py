@@ -109,7 +109,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
         orig_class_2_length = len(data_x_v2[2])
         for _ in range(orig_class_2_length):
             rand = np.random.random()
-            if rand>0.9 or len(valid_x)>100:
+            if rand>0.9 or len(valid_x)>500:
                 for _ in range(6) :
                     data_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
@@ -131,7 +131,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 my_train_ids_v2[2].pop()
                 full_rounds += 1
 
-            elif len(valid_x)<100 and rand<0.1:
+            elif len(valid_x)<500 and rand<0.1:
                 for _ in range(6) :
                     valid_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
@@ -656,7 +656,7 @@ if __name__ == '__main__':
 
     batch_size = 10
 
-    in_size = 254 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
+    in_size = 105 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
     hid_sizes = [750]
 
@@ -673,8 +673,8 @@ if __name__ == '__main__':
     print('------------------------------------------------------------------')
     print()
 
-    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_noised__train.csv',
-                                                               'features_modified_noised__test.csv',remove_header,1)
+    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_svm_train.csv',
+                                                               'features_svm_test.csv',remove_header,1)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
