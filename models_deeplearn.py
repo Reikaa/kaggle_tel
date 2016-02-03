@@ -644,26 +644,26 @@ if __name__ == '__main__':
 
     remove_header = True
 
-    save_features = True
+    save_features = False
     save_features_idx = 0
 
     crossValidate = False
 
     # seems pretraining helps to achieve a lower finetune error at the beginning
     isPretrained = True
-    pre_epochs = 25
-    finetune_epochs = 250
+    pre_epochs = 5
+    finetune_epochs = 350
 
     batch_size = 10
 
     in_size = 254 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
     out_size = 3
-    hid_sizes = [250]
+    hid_sizes = [750]
 
     lam = 0.0
     learning_rate = 0.25
     # relu is only for pretraining
-    act = 'relu'
+    act = 'sigmoid'
 
     print('--------------------------- Model Info ---------------------------')
     print('Batch size: ', batch_size)
@@ -718,7 +718,7 @@ if __name__ == '__main__':
                         pre_train_cost.append(pretrain_func(b))
                     print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
 
-            '''min_valid_err = np.inf
+            min_valid_err = np.inf
             for epoch in range(finetune_epochs):
                 from random import shuffle
                 finetune_cost = []
@@ -740,7 +740,7 @@ if __name__ == '__main__':
                     if curr_valid_err*0.95>min_valid_err:
                         break
                     elif  curr_valid_err<min_valid_err:
-                        min_valid_err = curr_valid_err'''
+                        min_valid_err = curr_valid_err
 
         else:
 

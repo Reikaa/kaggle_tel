@@ -202,7 +202,7 @@ if __name__ == '__main__':
     #eval list is used to keep track of performance
     evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
     epochs = 1
-    num_round = 100
+    num_round = 500
 
     best_eta,best_depth,best_reg = 0,0,0
     best_eta_round,best_depth_round,best_reg_round = 0,0,0
