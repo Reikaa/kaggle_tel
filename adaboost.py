@@ -1,7 +1,6 @@
+__author__ = 'Thushan Ganegedara'
 
 import numpy as np
-from sklearn import svm
-from sklearn.metrics import log_loss
 
 def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
@@ -34,6 +33,8 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
             output = int(row[-1])
             data_x_v2[output].append(row[start_col:-1])
             my_train_ids_v2[output].append(row[0])
+
+        valid_idx = np.random.randint(0,len(data_x_v2[2]),size=(100,)).tolist()
 
         valid_size = 350
         full_rounds = 1
@@ -123,42 +124,56 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 continue
             correct_order_test_ids.append(int(row[0]))
 
+    def get_shared_data(data_xy):
+        data_x,data_y = data_xy
+        shared_x = shared(value=np.asarray(data_x,dtype=config.floatX),borrow=True)
+        shared_y = shared(value=np.asarray(data_y,dtype=config.floatX),borrow=True)
+
+        return shared_x,T.cast(shared_y,'int32')
+
+
+    train_x,train_y = get_shared_data(train_set)
+    valid_x,valid_y = get_shared_data(valid_set)
+    test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
-    all_data = [train_set,valid_set,test_set[0],my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
+    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
 
     return all_data
 
-class SVM(object):
+tr_data, v_data, test_x, ts_ids, correct_ts_ids, tr_ids, v_ids = load_teslstra_data_v2('','',True,1)
+tr_x,tr_y  = tr_data
+v_x,v_y = v_data
 
-    def __init__(self):
-        self.svm = svm.SVC()
-        print('Loading data ...')
-        self.tr, self.v, self.test, ts_ids, correct_ts_ids, tr_ids, v_ids = load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
+# a model should take 2 np array tuples as (tr_x,tr_y),(v_x,v_y)
+# and output pred labels, actual labels
 
-    def train(self):
-        tr_x,tr_y = self.tr
-        v_x,v_y = self.v
-        print('Fitting the model ...')
-        #self.svm.fit(v_x,v_y)
-        self.svm.fit(np.asarray(tr_x,dtype=np.float32),tr_y)
+models = [] # length m
+alpha = [0 for _ in range(len(models))] # m long list
+num_classes = 3
+thresh = 0.003
+for m, model in models:
 
-        print('Predict ...')
-        pred_v = self.svm.predict(np.asarray(v_x,dtype=np.float32))
+    w = [1/len(tr_y) for _ in range(len(tr_y))]
+    w_thresh = [i for i in range(len(w)) if w[i]> thresh]
 
-        indicator_pred_v = np.zeros((len(pred_v),3),dtype=np.float32)
-        indicator_act_y = np.zeros((len(pred_v),3),dtype=np.float32)
-        for i in range(len(pred_v.tolist())):
-            indicator_pred_v[i][pred_v.tolist()[i]] = 1
-            indicator_act_y[i][v_y[i]] = 1
+    selected_x = [tr_x[i] for i in w_thresh]
+    selected_y = [tr_y[i] for i in w_thresh]
 
-        loss = log_loss(np.asarray(v_y),indicator_pred_v,1e-5,True)
-        print('Validation error: ',loss)
+    model.train(selected_x,selected_y,v_x,v_y)
+    pred_y, act_y = model.get_labels()
 
-if __name__ == '__main__':
+    vec = np.multiply(w,[1 if pred_y[i]==act_y[i] else 0 for i in range(len(pred_y))])
+    err_m = np.sum(vec)/np.sum(w)
 
-    svm = SVM()
-    svm.train()
+    alpha[m] = np.log((1-err_m)/err_m) + np.log(3-1)
+
+    exp_term = np.exp(alpha[m]*[1 if pred_y[i]==act_y[i] else 0 for i in range(len(pred_y))])
+    w = np.multiply(w,exp_term)
+
+    # renormalize
+    w = np.asarray(w)/np.max(w)
+

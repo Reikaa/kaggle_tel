@@ -64,8 +64,12 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
     train_set = []
     valid_set = []
     test_set = []
+    my_train_ids = []
+    my_valid_ids = []
+    my_train_ids_v2 = [[],[],[]]
     my_test_ids = []
     correct_order_test_ids = []
+
     with open(train_file, 'r',newline='') as f:
         reader = csv.reader(f)
         data_x = []
@@ -81,52 +85,73 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
             # first 2 columns are ID and location
             output = int(row[-1])
             data_x_v2[output].append(row[start_col:-1])
+            my_train_ids_v2[output].append(row[0])
 
+        valid_size = 350
         full_rounds = 1
         orig_class_2_length = len(data_x_v2[2])
         for _ in range(orig_class_2_length):
             rand = np.random.random()
-            if rand>0.9 or len(valid_x)>300:
+            if rand>=0.9 or len(valid_x)>valid_size:
                 for _ in range(6) :
                     data_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
                     data_y.append(0)
+                    my_train_ids.append(my_train_ids_v2[0][-1])
+                    my_train_ids_v2[0].pop()
+
                 for _ in range(2):
                     data_x.append(data_x_v2[1][-1])
                     data_x_v2[1].pop()
                     data_y.append(1)
+                    my_train_ids.append(my_train_ids_v2[1][-1])
+                    my_train_ids_v2[1].pop()
 
                 data_x.append(data_x_v2[2][-1])
                 data_x_v2[2].pop()
                 data_y.append(2)
+                my_train_ids.append(my_train_ids_v2[2][-1])
+                my_train_ids_v2[2].pop()
                 full_rounds += 1
 
-            elif len(valid_x)<300 and rand<0.1:
-                for _ in range(2) :
+            elif len(valid_x)<valid_size and rand<0.1:
+
+                for _ in range(4):
                     valid_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
                     valid_y.append(0)
+                    my_valid_ids.append(my_train_ids_v2[0][-1])
+                    my_train_ids_v2[0].pop()
+
                 for _ in range(2):
                     valid_x.append(data_x_v2[1][-1])
                     data_x_v2[1].pop()
                     valid_y.append(1)
-                for _ in range(2):
-                    valid_x.append(data_x_v2[2][-1])
-                    data_x_v2[2].pop()
-                    valid_y.append(2)
+                    my_valid_ids.append(my_train_ids_v2[1][-1])
+                    my_train_ids_v2[1].pop()
+
+                valid_x.append(data_x_v2[2][-1])
+                data_x_v2[2].pop()
+                valid_y.append(2)
+                my_valid_ids.append(my_train_ids_v2[2][-1])
+                my_train_ids_v2[2].pop()
+
                 full_rounds += 1
 
         for j in range(len(data_x_v2[0])):
             data_x.append(data_x_v2[0][j])
             data_y.append(0)
+            my_train_ids.append(my_train_ids_v2[0][j])
 
         for j in range(len(data_x_v2[1])):
             data_x.append(data_x_v2[1][j])
             data_y.append(1)
+            my_train_ids.append(my_train_ids_v2[1][j])
 
         for j in range(len(data_x_v2[2])):
             data_x.append(data_x_v2[2][j])
             data_y.append(2)
+            my_train_ids.append(my_train_ids_v2[2][j])
 
         train_set = (data_x,data_y)
         valid_set = (valid_x,valid_y)
@@ -142,7 +167,6 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
             my_test_ids.append(int(row[0]))
         test_set = [data_x]
 
-
     with open('test.csv', 'r',newline='') as f:
         reader = csv.reader(f)
 
@@ -151,21 +175,72 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 continue
             correct_order_test_ids.append(int(row[0]))
 
-    train_x,train_y = train_set
-    valid_x,valid_y = valid_set
-    test_x = np.asarray(test_set[0])
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
-    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids]
+    all_data = [train_set,valid_set,test_set[0],my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
 
     return all_data
 
+def train(params,tr_x,tr_y,v_x,v_y):
+
+    xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
+    xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
+    xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+
+
+
+    #eval list is used to keep track of performance
+    evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
+    epochs = 1
+    num_round = 500
+
+    print('\nTraining ...')
+
+    bst = xgb.train(param, xg_train, num_round, evallist)
+    ptrain = bst.predict(xg_train)
+
+    # get prediction
+    pred_valid = bst.predict(xg_valid)
+    pred_test = bst.predict(xg_test)
+
+    print('\n Saving out probabilities (test)')
+    import csv
+    with open('xgboost_output.csv', 'w',newline='') as f:
+        class_dist = [0,0,0]
+        writer = csv.writer(f)
+        for id in correct_ids:
+            c_id = ts_ids.index(id)
+            probs = pred_test[int(c_id)]
+            row = [id,probs[0], probs[1], probs[2]]
+            class_dist[np.argmax(probs)] += 1
+            writer.writerow(row)
+
+    print('Predicted class distribution: ',class_dist)
+
+    print('\n Saving out probabilities (valid)')
+    with open('xgboost_valid_probs.csv', 'w',newline='') as f:
+        import csv
+        writer = csv.writer(f)
+
+        row = ['id','pred_0','pred_1','pred_2','act_0','act_1','act_2']
+        writer.writerow(row)
+
+        labels = xg_valid.get_label()
+        for i,id in enumerate(v_ids):
+            row = [id]
+            row.extend(pred_valid[i])
+            temp = [0,0,0]
+            temp[int(labels[i])]=1
+            row.extend(temp)
+            writer.writerow(row)
+
+
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
+    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,2)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
@@ -180,9 +255,6 @@ if __name__ == '__main__':
 
     test_x = test
     test_dummy_y = [0 for _ in range(len(test_x))]
-    xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
-    xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
-    xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
 
     print('Defining parameters ...')
     param = {}
@@ -191,24 +263,19 @@ if __name__ == '__main__':
     # scale weight of positive examples
     param['booster'] = 'gbtree'
     param['eta'] = 0.2  # high eta values give better perf
-    param['max_depth'] = 4
+    param['max_depth'] = 5
     param['silent'] = 1
-    param['lambda'] = 0.95
-    param['alpha'] = 0.95
+    param['lambda'] = 0.5
+    param['alpha'] = 0.5
     param['nthread'] = 4
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
-
-    #eval list is used to keep track of performance
-    evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
-    epochs = 1
-    num_round = 500
 
     best_eta,best_depth,best_reg = 0,0,0
     best_eta_round,best_depth_round,best_reg_round = 0,0,0
 
 
-    ('\nCross validation ...')
+    '''('\nCross validation ...')
     #history = xgb.cv(param, xg_train, num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
     # hitory._get_values is a num_round x 4 matrix
     #print(history)
@@ -256,7 +323,7 @@ if __name__ == '__main__':
     param['max_depth']= best_depth
     # Cross validate alpha lambda
 
-    reg = [[0.1,0.1],[0.5,0.5],[0.95,0.95]]
+    reg = [[0.5,0.1],[0.5,0.5],[0.1,0.5]]
     min_idx_reg = 0
     min_mean = np.inf
     for i,arr in enumerate(reg):
@@ -280,32 +347,6 @@ if __name__ == '__main__':
 
     print('Best eta: ',best_eta,' Round: ',best_eta_round)
     print('Best depth: ',best_depth, ' Round: ',best_depth_round)
-    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
-
-
-    '''print('\nTraining ...')
-
-    bst = xgb.train(param, xg_train, num_round, evallist)
-    ptrain = bst.predict(xg_train)
-    #ptrain_flat =np.asarray(ptrain).flatten().tolist()  #multiclass need the margin array flattened
-    #xg_train.set_base_margin(ptrain_flat)
-
-    #pvalid = bst.predict(xg_valid,output_margin=True)
-    #pvalid_flat =np.asarray(pvalid).flatten().tolist()  #multiclass need the margin array flattened
-    #xg_valid.set_base_margin(pvalid_flat)
-
-    # get prediction
-
-    pred_test = bst.predict(xg_test)
-
-
-    import csv
-    with open('xgboost_output.csv', 'w',newline='') as f:
-        writer = csv.writer(f)
-        for id in correct_ids:
-            c_id = my_ids.index(id)
-            probs = pred_test[int(c_id)]
-            row = [id,probs[0], probs[1], probs[2]]
-            writer.writerow(row)'''
+    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)'''
 
 

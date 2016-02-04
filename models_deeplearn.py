@@ -105,11 +105,12 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
         valid_idx = np.random.randint(0,len(data_x_v2[2]),size=(100,)).tolist()
 
+        valid_size = 350
         full_rounds = 1
         orig_class_2_length = len(data_x_v2[2])
         for _ in range(orig_class_2_length):
             rand = np.random.random()
-            if rand>0.9 or len(valid_x)>500:
+            if rand>=0.9 or len(valid_x)>valid_size:
                 for _ in range(6) :
                     data_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
@@ -131,13 +132,15 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 my_train_ids_v2[2].pop()
                 full_rounds += 1
 
-            elif len(valid_x)<500 and rand<0.1:
-                for _ in range(6) :
+            elif len(valid_x)<valid_size and rand<0.1:
+
+                for _ in range(4):
                     valid_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
                     valid_y.append(0)
                     my_valid_ids.append(my_train_ids_v2[0][-1])
                     my_train_ids_v2[0].pop()
+
                 for _ in range(2):
                     valid_x.append(data_x_v2[1][-1])
                     data_x_v2[1].pop()
@@ -278,7 +281,7 @@ class SoftMax(object):
         if self.act == 'sigmoid':
             y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
         elif self.act == 'relu':
-            y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)*1e-8
+            y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)
 
         self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
 
@@ -496,16 +499,18 @@ class SDAE(object):
 
         return fine_tune_fn
 
-    def validate(self,x,y):
+    def validate(self,x,y,ids):
         idx = T.iscalar('idx')
+        entry_ids = T.ivector('entries')
 
         output = self.softmax.logloss
         #relu cannot handle logloss or the negative log cost
         # we used softmax.error for relu, but cost didn't change over time.
         # so we're using logloss with sigmoid for finetuning
-        theano_validate_fn = function(inputs=[idx],outputs=output,updates=None,
+        theano_validate_fn = function(inputs=[idx],outputs=[entry_ids,output,self.softmax.p_y_given_x,self.softmax.y_mat_update],updates=None,
                                givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
-                                    self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]})
+                                    self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size],
+                                    entry_ids: ids[idx * self.batch_size:(idx+1) * self.batch_size]})
 
         def validate_fn(batch_id):
             return theano_validate_fn(batch_id)
@@ -654,11 +659,11 @@ if __name__ == '__main__':
     pre_epochs = 5
     finetune_epochs = 350
 
-    batch_size = 10
+    batch_size = 1
 
-    in_size = 105 #168 for vectorized (less), 253 for vectorized (more), 98 for non-vec
+    in_size = 254
     out_size = 3
-    hid_sizes = [750]
+    hid_sizes = [150]
 
     lam = 0.0
     learning_rate = 0.25
@@ -673,8 +678,8 @@ if __name__ == '__main__':
     print('------------------------------------------------------------------')
     print()
 
-    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_svm_train.csv',
-                                                               'features_svm_test.csv',remove_header,1)
+    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_train.csv',
+                                                               'features_modified_test.csv',remove_header,1)
 
     n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
@@ -692,7 +697,10 @@ if __name__ == '__main__':
             pretrain_func = sdae.pre_train(train[0],train[1])
             finetune_func = sdae.fine_tune(train[0],train[1])
             finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
-            validate_func = sdae.validate(valid[0],valid[1])
+
+            my_valid_id_tensor = shared(value=np.asarray(valid_ids,dtype=config.floatX),borrow=True)
+            my_valid_id_int_tensor = T.cast(my_valid_id_tensor,'int32')
+            validate_func = sdae.validate(valid[0],valid[1],my_valid_id_int_tensor)
 
             if save_features:
 
@@ -731,9 +739,15 @@ if __name__ == '__main__':
 
                 if epoch%25==0:
                     valid_cost = []
+                    theano_v_ids = []
+                    theano_v_pred_y = []
+                    theano_v_act_y = []
                     for b in range(n_valid_batches):
-                        err = validate_func(b)
-                        valid_cost.append(err)
+                        ids,errs,pred_y,act_y = validate_func(b)
+                        valid_cost.append(errs)
+                        theano_v_ids.extend(ids)
+                        theano_v_pred_y.extend(pred_y)
+                        theano_v_act_y.extend(act_y)
 
                     curr_valid_err = np.mean(valid_cost)
                     print('Validation error: ',np.mean(valid_cost))
@@ -764,14 +778,34 @@ if __name__ == '__main__':
             test_out.append(cls)
             test_out_probs.append(probs[0])
 
-    print('\n Saving out probabilities')
+    print('\n Saving out probabilities (test)')
     with open('deepnet_out_probs.csv', 'w',newline='') as f:
         import csv
+        class_dist = [0,0,0]
         writer = csv.writer(f)
+        print('Ids (valid): ',len(theano_v_ids))
+        print('Pred (valid): ',len(theano_v_pred_y))
+        print('Act (valid): ',len(theano_v_act_y))
         for id in correct_ids:
             c_id = my_test_ids.index(id)
             probs = test_out_probs[int(c_id)]
             row= [id,probs[0], probs[1], probs[2]]
+            class_dist[np.argmax(probs)] += 1
+            writer.writerow(row)
+
+    print('Predicted class distribution: ',class_dist)
+
+    print('\n Saving out probabilities (valid)')
+    with open('deepnet_valid_probs.csv', 'w',newline='') as f:
+        import csv
+        writer = csv.writer(f)
+
+        row = ['id','pred_0','pred_1','pred_2','act_0','act_1','act_2']
+        writer.writerow(row)
+        for i,id in enumerate(theano_v_ids):
+            row = [id]
+            row.extend(theano_v_pred_y[i])
+            row.extend(theano_v_act_y[i])
             writer.writerow(row)
 
     if save_features:
