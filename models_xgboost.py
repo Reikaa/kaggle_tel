@@ -184,58 +184,152 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
-def train(params,tr_x,tr_y,v_x,v_y):
+class XGBoost(object):
 
-    xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
-    xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
-    xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+    def __init__(self,params):
+        self.param = params
+        self.bst = None
+
+    def train(self,tr_all,v_all):
+
+        tr_ids,tr_x,tr_y = tr_all
+        v_ids,v_x,v_y = v_all
+
+        num_round = self.param['num_rounds']
+        xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
+        xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
 
 
+        #eval list is used to keep track of performance
+        evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
 
-    #eval list is used to keep track of performance
-    evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
-    epochs = 1
-    num_round = 500
+        print('\nTraining ...')
 
-    print('\nTraining ...')
+        self.bst = xgb.train(self.param, xg_train, num_round, evallist)
+        pred_train = self.bst.predict(xg_train)
 
-    bst = xgb.train(param, xg_train, num_round, evallist)
-    ptrain = bst.predict(xg_train)
+        # get prediction
+        pred_valid = self.bst.predict(xg_valid)
 
-    # get prediction
-    pred_valid = bst.predict(xg_valid)
-    pred_test = bst.predict(xg_test)
+        pred_y = [np.argmax(arr) for arr in pred_train]
 
-    print('\n Saving out probabilities (test)')
-    import csv
-    with open('xgboost_output.csv', 'w',newline='') as f:
-        class_dist = [0,0,0]
-        writer = csv.writer(f)
-        for id in correct_ids:
-            c_id = ts_ids.index(id)
-            probs = pred_test[int(c_id)]
-            row = [id,probs[0], probs[1], probs[2]]
-            class_dist[np.argmax(probs)] += 1
+        return tr_ids,pred_y,tr_y
+
+        '''
+        print('\n Saving out probabilities (valid)')
+        with open('xgboost_valid_probs.csv', 'w',newline='') as f:
+            import csv
+            writer = csv.writer(f)
+
+            row = ['id','pred_0','pred_1','pred_2','act_0','act_1','act_2']
             writer.writerow(row)
 
-    print('Predicted class distribution: ',class_dist)
+            labels = xg_valid.get_label()
+            for i,id in enumerate(v_ids):
+                row = [id]
+                row.extend(pred_valid[i])
+                temp = [0,0,0]
+                temp[int(labels[i])]=1
+                row.extend(temp)
+                writer.writerow(row)'''
 
-    print('\n Saving out probabilities (valid)')
-    with open('xgboost_valid_probs.csv', 'w',newline='') as f:
+    def cross_validate(self,param, tr_x,tr_y,v_x,v_y,num_round):
+
+        best_eta,best_depth,best_reg = 0,0,0
+        best_eta_round,best_depth_round,best_reg_round = 0,0,0
+
+        xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
+        xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
+        xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+
+        ('\nCross validation ...')
+        #history = xgb.cv(param, xg_train, num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
+        # hitory._get_values is a num_round x 4 matrix
+        #print(history)
+
+        # Cross validate eta
+        etas = [0.2, 0.5, 0.9]
+        min_idx_eta = 0
+        min_mean = np.inf
+        for i,e in enumerate(etas):
+            param['eta'] = e
+            history = xgb.cv(param, xg_train, num_boost_round=num_round,nfold=5,metrics={'mlogloss'}, seed = 4675)
+
+            for h_i,h in enumerate(history):
+                str_test_loss = h.split('\t')[1]
+                str_val = str_test_loss.split(':')[1]
+                curr_mean = float(str_val.split('+')[0])
+                curr_stdev = float(str_val.split('+')[1])
+                if curr_mean<min_mean:
+                    min_idx_eta = i
+                    min_mean = curr_mean
+                    best_eta_round = h_i
+
+        best_eta = etas[min_idx_eta]
+        param['eta']=best_eta
+
+            # Cross validate max_depth
+        max_depths = [3, 4, 5]
+        min_idx_depth = 0
+        min_mean = np.inf
+        for i,d in enumerate(max_depths):
+            param['max_depth'] = d
+            history = xgb.cv(param, xg_train, num_boost_round=num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
+
+            for h_i,h in enumerate(history):
+                str_test_loss = h.split('\t')[1]
+                str_val = str_test_loss.split(':')[1]
+                mean_val=float(str_val.split('+')[0])
+                stdev_val=float(str_val.split('+')[1])
+                if mean_val<min_mean:
+                    min_idx_depth = i
+                    min_mean = mean_val
+                    best_depth_round = h_i
+
+        best_depth = max_depths[min_idx_depth]
+        param['max_depth']= best_depth
+        # Cross validate alpha lambda
+
+        reg = [[0.5,0.1],[0.5,0.5],[0.1,0.5]]
+        min_idx_reg = 0
+        min_mean = np.inf
+        for i,arr in enumerate(reg):
+            param['alpha'] = arr[0]
+            param['lambda'] = arr[1]
+            history = xgb.cv(param, xg_train, num_boost_round=num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
+
+            for h_i,h in enumerate(history):
+                str_test_loss = h.split('\t')[1]
+                str_val = str_test_loss.split(':')[1]
+                mean_val=float(str_val.split('+')[0])
+                stdev_val=float(str_val.split('+')[1])
+                if mean_val<min_mean:
+                    min_idx_reg = i
+                    min_mean = mean_val
+                    best_reg_round = h_i
+
+        best_reg = reg[min_idx_reg]
+        param['alpha']=best_reg[0]
+        param['lambda']=best_reg[1]
+
+        print('Best eta: ',best_eta,' Round: ',best_eta_round)
+        print('Best depth: ',best_depth, ' Round: ',best_depth_round)
+        print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
+
+    def test(self):
+        xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+        pred_test = self.bst.predict(xg_test)
+        print('\n Saving out probabilities (test)')
         import csv
-        writer = csv.writer(f)
-
-        row = ['id','pred_0','pred_1','pred_2','act_0','act_1','act_2']
-        writer.writerow(row)
-
-        labels = xg_valid.get_label()
-        for i,id in enumerate(v_ids):
-            row = [id]
-            row.extend(pred_valid[i])
-            temp = [0,0,0]
-            temp[int(labels[i])]=1
-            row.extend(temp)
-            writer.writerow(row)
+        with open('xgboost_output.csv', 'w',newline='') as f:
+            class_dist = [0,0,0]
+            writer = csv.writer(f)
+            for id in correct_ids:
+                c_id = ts_ids.index(id)
+                probs = pred_test[int(c_id)]
+                row = [id,probs[0], probs[1], probs[2]]
+                class_dist[np.argmax(probs)] += 1
+                writer.writerow(row)
 
 
 if __name__ == '__main__':
@@ -270,83 +364,10 @@ if __name__ == '__main__':
     param['nthread'] = 4
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
-
-    best_eta,best_depth,best_reg = 0,0,0
-    best_eta_round,best_depth_round,best_reg_round = 0,0,0
+    param['num_rounds'] = 500
 
 
-    '''('\nCross validation ...')
-    #history = xgb.cv(param, xg_train, num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
-    # hitory._get_values is a num_round x 4 matrix
-    #print(history)
 
-    # Cross validate eta
-    etas = [0.2, 0.5, 0.9]
-    min_idx_eta = 0
-    min_mean = np.inf
-    for i,e in enumerate(etas):
-        param['eta'] = e
-        history = xgb.cv(param, xg_train, num_boost_round=num_round,nfold=5,metrics={'mlogloss'}, seed = 4675)
 
-        for h_i,h in enumerate(history):
-            str_test_loss = h.split('\t')[1]
-            str_val = str_test_loss.split(':')[1]
-            curr_mean = float(str_val.split('+')[0])
-            curr_stdev = float(str_val.split('+')[1])
-            if curr_mean<min_mean:
-                min_idx_eta = i
-                min_mean = curr_mean
-                best_eta_round = h_i
-
-    best_eta = etas[min_idx_eta]
-    param['eta']=best_eta
-
-        # Cross validate max_depth
-    max_depths = [3, 4, 5]
-    min_idx_depth = 0
-    min_mean = np.inf
-    for i,d in enumerate(max_depths):
-        param['max_depth'] = d
-        history = xgb.cv(param, xg_train, num_boost_round=num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
-
-        for h_i,h in enumerate(history):
-            str_test_loss = h.split('\t')[1]
-            str_val = str_test_loss.split(':')[1]
-            mean_val=float(str_val.split('+')[0])
-            stdev_val=float(str_val.split('+')[1])
-            if mean_val<min_mean:
-                min_idx_depth = i
-                min_mean = mean_val
-                best_depth_round = h_i
-
-    best_depth = max_depths[min_idx_depth]
-    param['max_depth']= best_depth
-    # Cross validate alpha lambda
-
-    reg = [[0.5,0.1],[0.5,0.5],[0.1,0.5]]
-    min_idx_reg = 0
-    min_mean = np.inf
-    for i,arr in enumerate(reg):
-        param['alpha'] = arr[0]
-        param['lambda'] = arr[1]
-        history = xgb.cv(param, xg_train, num_boost_round=num_round, nfold=5,metrics={'mlogloss'}, seed = 4675)
-
-        for h_i,h in enumerate(history):
-            str_test_loss = h.split('\t')[1]
-            str_val = str_test_loss.split(':')[1]
-            mean_val=float(str_val.split('+')[0])
-            stdev_val=float(str_val.split('+')[1])
-            if mean_val<min_mean:
-                min_idx_reg = i
-                min_mean = mean_val
-                best_reg_round = h_i
-
-    best_reg = reg[min_idx_reg]
-    param['alpha']=best_reg[0]
-    param['lambda']=best_reg[1]
-
-    print('Best eta: ',best_eta,' Round: ',best_eta_round)
-    print('Best depth: ',best_depth, ' Round: ',best_depth_round)
-    print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)'''
 
 

@@ -645,6 +645,7 @@ class SDAE(object):
 
         return test_fn
 
+
 if __name__ == '__main__':
 
     remove_header = True

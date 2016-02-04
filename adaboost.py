@@ -124,17 +124,9 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
                 continue
             correct_order_test_ids.append(int(row[0]))
 
-    def get_shared_data(data_xy):
-        data_x,data_y = data_xy
-        shared_x = shared(value=np.asarray(data_x,dtype=config.floatX),borrow=True)
-        shared_y = shared(value=np.asarray(data_y,dtype=config.floatX),borrow=True)
-
-        return shared_x,T.cast(shared_y,'int32')
-
-
-    train_x,train_y = get_shared_data(train_set)
-    valid_x,valid_y = get_shared_data(valid_set)
-    test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
+    train_x,train_y = train_set
+    valid_x,valid_y = valid_set
+    test_x = np.asarray(test_set[0])
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
@@ -144,36 +136,82 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
-tr_data, v_data, test_x, ts_ids, correct_ts_ids, tr_ids, v_ids = load_teslstra_data_v2('','',True,1)
+tr_data, v_data, test_x, ts_ids, correct_ts_ids, tr_ids, v_ids = load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
 tr_x,tr_y  = tr_data
 v_x,v_y = v_data
 
 # a model should take 2 np array tuples as (tr_x,tr_y),(v_x,v_y)
 # and output pred labels, actual labels
 
-models = [] # length m
-alpha = [0 for _ in range(len(models))] # m long list
+from adaboost_classifiers import UseSDAE,UseXGBoost
+import collections
+
+
+params_deeplearn = collections.defaultdict()
+params_deeplearn['batch_size'] = 1
+params_deeplearn['in_size'] = 254
+params_deeplearn['out_size'] = 3
+params_deeplearn['hid_sizes'] = [100]
+params_deeplearn['learning_rate'] = 0.25
+params_deeplearn['pre_epochs'] = 5
+params_deeplearn['fine_epochs'] = 100
+params_deeplearn['lam'] = 0.0
+params_deeplearn['act'] = 'sigmoid'
+
+xgb_param = {}
+# use softmax multi-class classification
+xgb_param['objective'] = 'multi:softprob'
+# scale weight of positive examples
+xgb_param['booster'] = 'gbtree'
+xgb_param['eta'] = 0.2  # high eta values give better perf
+xgb_param['max_depth'] = 5
+xgb_param['silent'] = 1
+xgb_param['lambda'] = 0.5
+xgb_param['alpha'] = 0.5
+xgb_param['nthread'] = 4
+xgb_param['num_class'] = 3
+xgb_param['eval_metric']= 'mlogloss'
+xgb_param['num_rounds'] = 300
+
+sdae = UseSDAE(params_deeplearn)
+xgboost = UseXGBoost(xgb_param)
+models_funcs = [[sdae.train,sdae.get_labels],[xgboost.train,xgboost.get_labels]] # length m
+alpha = [0 for _ in range(len(models_funcs))] # m long list
 num_classes = 3
-thresh = 0.003
-for m, model in models:
+thresh = 0.001
 
-    w = [1/len(tr_y) for _ in range(len(tr_y))]
-    w_thresh = [i for i in range(len(w)) if w[i]> thresh]
+w = [1./len(tr_y) for _ in range(len(tr_y))]
+for m, funcs in enumerate(models_funcs):
 
-    selected_x = [tr_x[i] for i in w_thresh]
-    selected_y = [tr_y[i] for i in w_thresh]
+    train,get_labels = funcs
+    if m == 0:
+        selected_x = tr_x
+        selected_y = tr_y
+    else:
+        w_thresh = [i for i in range(len(w)) if w[i]> thresh]
+        print('Selecting a subset of ',len(w_thresh),' examples')
+        selected_x = [tr_x[i] for i in w_thresh]
+        selected_y = [tr_y[i] for i in w_thresh]
 
-    model.train(selected_x,selected_y,v_x,v_y)
-    pred_y, act_y = model.get_labels()
+    train((tr_ids,selected_x,selected_y),(v_ids,v_x,v_y))
 
-    vec = np.multiply(w,[1 if pred_y[i]==act_y[i] else 0 for i in range(len(pred_y))])
+    # shoud return a tuple (ids, pred, actual)
+    ids, pred_y, act_y = get_labels()
+    print(len(ids))
+    print(len(pred_y))
+    print(len(act_y))
+    vec = np.multiply(w,[1 if pred_y[i]!=act_y[i] else 0 for i in range(len(pred_y))])
     err_m = np.sum(vec)/np.sum(w)
-
+    print('Err for the ',m,' th model: ',err_m)
     alpha[m] = np.log((1-err_m)/err_m) + np.log(3-1)
+    print('Weight for the ',m,' th model: ',alpha[m])
 
-    exp_term = np.exp(alpha[m]*[1 if pred_y[i]==act_y[i] else 0 for i in range(len(pred_y))])
+    exp_term = np.exp([1*alpha[m] if pred_y[i]!=act_y[i] else 0 for i in range(len(pred_y))])
     w = np.multiply(w,exp_term)
 
     # renormalize
-    w = np.asarray(w)/np.max(w)
+    w = np.asarray(w)*1.0/np.sum(w)
+
+
+
 
