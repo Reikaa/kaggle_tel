@@ -3,11 +3,23 @@ from theano import function, config, shared
 import theano.tensor as T
 import numpy as np
 
-class UseSDAE(object):
+class AdaClassifier(object):
+
+    def train(self,tr_all,v_all,weights):
+        pass
+
+    def get_labels(self):
+        pass
+
+    def get_test_results(self,ts_data):
+        pass
+
+class UseSDAE(AdaClassifier):
 
     def __init__(self,param):
 
         self.batch_size = param['batch_size']
+        self.iterations = param['iterations']
         self.in_size = param['in_size']
         self.out_size = param['out_size']
         self.hid_sizes = param['hid_sizes']
@@ -17,15 +29,16 @@ class UseSDAE(object):
         self.lam = param['lam']
         self.act = param['act']
 
-        self.sdae = SDAE(self.in_size,self.out_size,self.hid_sizes,self.batch_size,self.learning_rate,self.lam,self.act)
+        self.sdae = SDAE(self.in_size,self.out_size,self.hid_sizes,self.batch_size,self.learning_rate,self.lam,self.act,self.iterations)
         self.sdae.process()
 
         self.theano_tr_ids, self.tr_pred, self.tr_act = [],[],[]
 
-    def train(self,tr_all,v_all):
-
+    def train(self,tr_all,v_all,weights):
+        from math import ceil
         tr_ids,tr_x,tr_y = tr_all
         v_ids,v_x,v_y = v_all
+        weights_shr = shared(value=np.asarray(weights,dtype=config.floatX),borrow=True)
 
         def get_shared_data(data_xy):
             data_x,data_y = data_xy
@@ -37,12 +50,12 @@ class UseSDAE(object):
         train = get_shared_data((tr_x,tr_y))
         valid = get_shared_data((v_x,v_y))
 
-        n_train_batches = int(train[0].get_value(borrow=True).shape[0] / self.batch_size)
-        n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / self.batch_size)
+        n_train_batches = ceil(train[0].get_value(borrow=True).shape[0] / self.batch_size)
+        n_valid_batches = ceil(valid[0].get_value(borrow=True).shape[0] / self.batch_size)
 
 
         pretrain_func = self.sdae.pre_train(train[0],train[1])
-        finetune_func = self.sdae.fine_tune(train[0],train[1])
+        finetune_func = self.sdae.fine_tune(train[0],train[1],weights_shr)
 
 
         my_valid_id_tensor = shared(value=np.asarray(v_ids,dtype=config.floatX),borrow=True)
@@ -57,7 +70,7 @@ class UseSDAE(object):
             pre_train_cost = []
             for b in range(n_train_batches):
                 pre_train_cost.append(pretrain_func(b))
-            print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
+        print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
 
         min_valid_err = np.inf
         for epoch in range(self.finetune_epochs):
@@ -67,10 +80,11 @@ class UseSDAE(object):
             b_idx =[i for i in range(0,n_train_batches)]
             shuffle(b_idx)
             for b in b_idx:
-                finetune_cost.append(finetune_func(b))
-            print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
+                cost = finetune_func(b)
+                finetune_cost.append(cost)
 
-            if epoch%25==0:
+            if epoch%10==0:
+                print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
                 valid_cost = []
                 for b in range(n_valid_batches):
                     ids,errs,pred_y,act_y = validate_func(b)
@@ -79,7 +93,7 @@ class UseSDAE(object):
 
                 curr_valid_err = np.mean(valid_cost)
                 print('Validation error: ',np.mean(valid_cost))
-                if curr_valid_err*0.95>min_valid_err:
+                if curr_valid_err*0.99>min_valid_err:
                     break
                 elif  curr_valid_err<min_valid_err:
                     min_valid_err = curr_valid_err
@@ -91,28 +105,58 @@ class UseSDAE(object):
             self.tr_pred.extend([np.argmax(arr) for arr in t_pred_y])
             self.tr_act.extend([np.argmax(arr) for arr in t_act_y])
 
-    def test(self,ts_all):
-        ts_ids,ts_x = ts_all
-        test_x = shared(value=np.asarray(ts_x,dtype=config.floatX),borrow=True)
-
-        test_func = self.sdae.test(test_x)
-        n_test_batches = int(test_x.get_value(borrow=True).shape[0])
-
     def get_labels(self):
         return self.theano_tr_ids,self.tr_pred,self.tr_act
 
+    def get_test_results(self,ts_data):
+        ts_ids, test_x = ts_data
+
+        test_x = shared(value=np.asarray(test_x,dtype=config.floatX),borrow=True)
+
+        test_func = self.sdae.test(test_x)
+        n_test_batches = (test_x.get_value(borrow=True).shape[0])
+
+        test_out_probs = []
+        for b in range(n_test_batches):
+            cls,probs = test_func(b)
+            test_out_probs.append(probs[0])
+
+        return ts_ids,test_out_probs
+
 from models_xgboost import XGBoost
-class UseXGBoost(object):
+class UseXGBoost(AdaClassifier):
 
     def __init__(self,params):
         self.xgboost = XGBoost(params)
         self.tr_ids,self.tr_pred,self.tr_act = [],[],[]
 
-    def train(self,tr_all,v_all):
-        ids, pred, act = self.xgboost.train(tr_all,v_all)
+    def train(self,tr_all,v_all,weights):
+        ids, pred, act = self.xgboost.train(tr_all,v_all,weights)
         self.tr_ids = ids
         self.tr_pred = pred
         self.tr_act = act
 
     def get_labels(self):
         return self.tr_ids,self.tr_pred,self.tr_act
+
+    def get_test_results(self,ts_data):
+        ts_ids, test_x = ts_data
+
+        return ts_ids,self.xgboost.test(test_x)
+
+from models_sklearn import SVM
+class UseSVM(AdaClassifier):
+
+    def __init__(self,params):
+        self.svm = SVM(params)
+        self.tr_ids,self.tr_pred,self.tr_act = [],[],[]
+
+    def train(self,tr_all,v_all,weights):
+        self.tr_ids,self.tr_pred,self.tr_act = self.svm.train(tr_all,v_all,weights)
+
+    def get_labels(self):
+        return self.tr_ids,self.tr_pred,self.tr_act
+
+    def get_test_results(self,ts_data):
+        ts_ids, test_x = ts_data
+        return ts_ids,self.svm.test(test_x)

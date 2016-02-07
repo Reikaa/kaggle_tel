@@ -356,7 +356,7 @@ class LogisticRegression(object):
 
 class SDAE(object):
 
-    def __init__(self,in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act):
+    def __init__(self,in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act,iterations):
         self.in_size = in_size
         self.out_size = out_size
         self.layer_sizes = hid_sizes
@@ -369,6 +369,7 @@ class SDAE(object):
         self.lam = lam
         self.act = act
         self.batch_size = batch_size
+        self.iterations = iterations
         self.pre_costs = []
         self.fine_tune_cost = None
         self.p_y_given_x = None
@@ -480,22 +481,54 @@ class SDAE(object):
 
         return train
 
-    def fine_tune(self,x,y):
+    def fine_tune(self,x,y,weights = None):
         idx = T.iscalar('idx')
         params = []
-        for layer in self.layers:
-            params.extend([layer.W,layer.b,layer.b_prime])
-        params.extend([self.softmax.W,self.softmax.b])
 
-        updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
+        if weights == None:
+            for layer in self.layers:
+                params.extend([layer.W,layer.b,layer.b_prime])
+            params.extend([self.softmax.W,self.softmax.b])
+            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
+            theano_output = self.softmax.error
+        else:
+            for layer in self.layers:
+                params.extend([layer.W,layer.b])
+            params.extend([self.softmax.W,self.softmax.b])
+            weight_batch = T.dvector('weights')
 
-        theano_finetune = function(inputs=[idx],outputs=self.softmax.error,updates=updates,
+            weigh_logloss = T.sum(weight_batch*T.nnet.categorical_crossentropy(self.softmax.p_y_given_x,self.softmax.y_mat_update))
+
+            '''
+               We don't really need any of this stuff afa I understood
+               This stuff comes from the mathematical explanation of the SAMME algo (it's included)
+               This is just proof stuff .
+
+            err_m = T.sum(weight_batch*T.neq(self.softmax.y_pred,self.sym_y))*1.0/T.sum(weight_batch)
+            beta = ((self.out_size-1)**2/self.out_size) * (T.log((1.01-err_m)/err_m) + T.log(self.out_size -1 ))
+
+            y_tmp = T.ones((self.sym_y.shape[0],3),dtype=config.floatX)*(-1/(1-self.out_size))
+            y_symmetric = T.set_subtensor(y_tmp[T.arange(self.sym_y.shape[0]),self.sym_y], 1)
+
+            g_tmp = T.ones((self.sym_y.shape[0],3),dtype=config.floatX)*(-1/(1-self.out_size))
+            g_symmetric = T.set_subtensor(g_tmp[T.arange(self.sym_y.shape[0]),self.softmax.y_pred], 1)
+
+            exp_loss = T.sum(weight_batch * T.exp(-(1/self.out_size)*beta*T.sum(y_symmetric*g_symmetric)))'''
+
+            theano_output = self.softmax.error
+
+            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(weigh_logloss,wrt=params))]
+
+        theano_finetune = function(inputs=[idx],outputs=theano_output,updates=updates,
                                                givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
-                                                        self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]
+                                                        self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                         weight_batch: weights[idx * self.batch_size:(idx+1) * self.batch_size]
                                                         },on_unused_input='warn')
 
         def fine_tune_fn(batch_id):
-            return theano_finetune(batch_id)
+            for _ in range(self.iterations):
+                val = theano_finetune(batch_id)
+            return val
 
         return fine_tune_fn
 

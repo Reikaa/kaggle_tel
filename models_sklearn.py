@@ -132,32 +132,56 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
+def weighted_lin_kernel(weights,X,Y):
+
+    return np.multiply(weights,np.dot(X,Y.T))
+
+def weighted_exp_kernel(weights,gamma,X,Y):
+    euc = np.zeros((X.shape[0],Y.shape[0]),dtype=np.float32)
+    for i,y in enumerate(Y):
+        euc[i,:] = np.linalg.norm((X-y),ord=2,axis=1).reshape((1,-1))
+
+    return np.exp(-gamma*np.multiply(weights,euc))
+
+
+from functools import  partial
+
 class SVM(object):
 
-    def __init__(self):
-        self.svm = svm.SVC()
-        print('Loading data ...')
-        self.tr, self.v, self.test, ts_ids, correct_ts_ids, tr_ids, v_ids = load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
+    def __init__(self,params):
+        self.params = params
+        self.svm = None
 
-    def train(self):
-        tr_x,tr_y = self.tr
-        v_x,v_y = self.v
+    def train(self,tr_all,v_all,weights=None):
+
+        if self.params['kernel'] == 'wlinear':
+            self.svm = svm.SVC(kernel=partial(weighted_lin_kernel,weights))
+        elif self.params['kernel'] == 'wexp':
+            self.svm = svm.SVC(kernel=partial(weighted_exp_kernel,weights,self.params['gamma']))
+
+        tr_ids,tr_x,tr_y = tr_all
+        v_ids,v_x,v_y = v_all
+
         print('Fitting the model ...')
         #self.svm.fit(v_x,v_y)
         self.svm.fit(np.asarray(tr_x,dtype=np.float32),tr_y)
 
         print('Predict ...')
-        pred_v = self.svm.predict(np.asarray(v_x,dtype=np.float32))
+        pred_tr = self.svm.predict(np.asarray(tr_x,dtype=np.float32))
 
-        indicator_pred_v = np.zeros((len(pred_v),3),dtype=np.float32)
-        indicator_act_y = np.zeros((len(pred_v),3),dtype=np.float32)
-        for i in range(len(pred_v.tolist())):
-            indicator_pred_v[i][pred_v.tolist()[i]] = 1
-            indicator_act_y[i][v_y[i]] = 1
+        return tr_ids,pred_tr,tr_y
 
-        loss = log_loss(np.asarray(v_y),indicator_pred_v,1e-5,True)
-        print('Validation error: ',loss)
+    def test(self,test_x):
 
+        pred_y = self.svm.predict(np.asarray(test_x,dtype=np.float32))
+
+        ind_pred = []
+        for p in pred_y:
+            tmp = [0,0,0]
+            tmp[p] = 1.
+            ind_pred.append(tmp)
+
+        return ind_pred
 if __name__ == '__main__':
 
     svm = SVM()

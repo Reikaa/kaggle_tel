@@ -15,7 +15,7 @@ def load_teslstra_data(remove_header=False,start_idx=0):
         valid_x = []
         valid_y = []
         valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
-        #valid_idx = [i for i in range(400)]
+
         for i,row in enumerate(reader):
             if remove_header and i==0:
                 continue
@@ -184,13 +184,64 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
+def weighted_softmax_obj(weights, preds, dtrain):
+
+    labels = np.asarray(dtrain.get_label()).reshape((len(preds),1))
+    lbl_mat = np.zeros((len(labels),3),dtype=np.float32)
+
+    for i,j in zip(range(len(labels)),labels):
+        lbl_mat[int(i)][int(j)] = 1.
+    #print(preds)
+    preds = 1.0 / (1.0 + np.exp(-preds))
+    #preds = np.exp(preds)/np.sum(np.exp(preds))
+
+    pred_val_correct_class = np.asarray([np.argmax(preds[int(k)]) for k in labels]).reshape((len(preds),1))
+
+    grad = (np.asarray(weights).reshape((len(labels),1))/np.max(weights))*\
+           (np.asarray(preds) - np.asarray(lbl_mat))
+
+    #print('grad info')
+    #print('gsize: ',grad.shape)
+    #print('gmean: ',np.mean(grad,axis=0))
+    #print('gmin: ',np.min(grad,axis=0))
+    #print('gmax: ',np.max(grad,axis=0))
+    grad = np.asarray(grad,dtype=np.float32).flatten()
+
+    hess = np.ones((len(labels)*3,1))/300
+    #hess = (np.asarray(weights).reshape((len(labels),1))/np.max(weights)) *np.asarray(preds) * (1.0-np.asarray(preds))
+    #print('hess info')
+    #print('hmean: ',np.mean(hess,axis=0))
+    #print('hsize: ',hess.shape)
+    #print('hmin: ',np.min(hess,axis=0))
+    #print('hmax: ',np.max(hess,axis=0))
+    #hess = np.asarray(hess,dtype=np.float32).flatten()
+
+
+    # need to have # of data points * num of classes amount of entries in each list grad,hess
+    return grad,hess
+
+def weighted_eval_metric(weights,preds,dtrain):
+    labels = dtrain.get_label()
+    # return a pair metric_name, result
+    # since preds are margin(before logistic transformation, cutoff at 0)
+    pred_val_correct_class = [np.argmax(preds[k]) for k in labels]
+
+    if len(weights)==len(preds):
+        temp = np.multiply(np.asarray(weights)/np.max(weights),
+                    [1 if labels[j] != pred_val_correct_class[j] else 0 for j in range(len(labels))])
+        return 'werror', np.mean(temp)
+    else:
+        return 'werror', np.mean(np.asarray([1 if labels[j] != pred_val_correct_class[j] else 0 for j in range(len(labels))]))
+
+import functools
+
 class XGBoost(object):
 
     def __init__(self,params):
         self.param = params
         self.bst = None
 
-    def train(self,tr_all,v_all):
+    def train(self,tr_all,v_all,weights=None):
 
         tr_ids,tr_x,tr_y = tr_all
         v_ids,v_x,v_y = v_all
@@ -199,13 +250,18 @@ class XGBoost(object):
         xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
         xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
 
-
         #eval list is used to keep track of performance
         evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
 
         print('\nTraining ...')
 
-        self.bst = xgb.train(self.param, xg_train, num_round, evallist)
+        self.bst = xgb.train(self.param, xg_train, num_round, evallist,
+                             functools.partial(weighted_softmax_obj, weights),
+                             functools.partial(weighted_eval_metric, weights),
+                             early_stopping_rounds = 100)
+
+
+        #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
         pred_train = self.bst.predict(xg_train)
 
         # get prediction
@@ -232,6 +288,7 @@ class XGBoost(object):
                 temp[int(labels[i])]=1
                 row.extend(temp)
                 writer.writerow(row)'''
+
 
     def cross_validate(self,param, tr_x,tr_y,v_x,v_y,num_round):
 
@@ -316,10 +373,14 @@ class XGBoost(object):
         print('Best depth: ',best_depth, ' Round: ',best_depth_round)
         print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
 
-    def test(self):
+    def test(self,test_x):
+        test_dummy_y = [0 for _ in range(len(test_x))]
         xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
+
         pred_test = self.bst.predict(xg_test)
-        print('\n Saving out probabilities (test)')
+
+        return pred_test
+        '''print('\n Saving out probabilities (test)')
         import csv
         with open('xgboost_output.csv', 'w',newline='') as f:
             class_dist = [0,0,0]
@@ -329,7 +390,7 @@ class XGBoost(object):
                 probs = pred_test[int(c_id)]
                 row = [id,probs[0], probs[1], probs[2]]
                 class_dist[np.argmax(probs)] += 1
-                writer.writerow(row)
+                writer.writerow(row)'''
 
 
 if __name__ == '__main__':
@@ -348,7 +409,7 @@ if __name__ == '__main__':
     tr_big_y.extend(tr_y)
 
     test_x = test
-    test_dummy_y = [0 for _ in range(len(test_x))]
+
 
     print('Defining parameters ...')
     param = {}
@@ -356,17 +417,18 @@ if __name__ == '__main__':
     param['objective'] = 'multi:softprob'
     # scale weight of positive examples
     param['booster'] = 'gbtree'
-    param['eta'] = 0.2  # high eta values give better perf
-    param['max_depth'] = 5
+    param['eta'] = 0.9  # high eta values give better perf
+    param['max_depth'] = 15
     param['silent'] = 1
     param['lambda'] = 0.5
     param['alpha'] = 0.5
     param['nthread'] = 4
     param['num_class'] = 3
-    param['eval_metric']='mlogloss'
+    param['eval_metric']='merror'
     param['num_rounds'] = 500
 
-
+    xgboost = XGBoost(param)
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),[1/len(tr_y) for i in range(len(tr_y))])
 
 
 
