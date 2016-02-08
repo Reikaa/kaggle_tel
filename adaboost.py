@@ -213,7 +213,7 @@ xgb_param_2['nthread'] = 4
 xgb_param_2['num_class'] = 3
 xgb_param_2['eval_metric']= 'mlogloss'
 xgb_param_2['num_rounds'] = 300
-xgb_param_2['learning_rate'] = 0.1
+xgb_param_2['learning_rate'] = 0.3
 xgb_param_2['n_estimators'] = 100
 
 xgb_param_3 = {}
@@ -228,8 +228,8 @@ xgb_param_3['nthread'] = 4
 xgb_param_3['num_class'] = 3
 xgb_param_3['eval_metric']= 'mlogloss'
 xgb_param_3['num_rounds'] = 300
-xgb_param_3['learning_rate'] = 0.15
-xgb_param_3['n_estimators'] = 100
+xgb_param_3['learning_rate'] = 0.3
+xgb_param_3['n_estimators'] = 250
 
 svm_params_1 = {}
 svm_params_1['kernel'] = 'rbf'
@@ -240,7 +240,6 @@ svm_params_2['gamma'] = 0.0
 
 models_available = {}
 
-#models_available['svm_2'] = svm_params_2
 #models_available['svm_1'] = svm_params_1
 
 #models_available['sdae_1'] = dl_params_1
@@ -248,7 +247,7 @@ models_available = {}
 #models_available['sdae_3'] = dl_params_3
 
 #models_available['xgb_1'] = xgb_param_1
-#models_available['xgb_2'] = xgb_param_2
+models_available['xgb_2'] = xgb_param_2
 models_available['xgb_3'] = xgb_param_3
 
 
@@ -385,18 +384,18 @@ for m in range(M):
     print('Calculating multiclass log loss')
 
     # Using alpha #
-    prev_log_loss = np.inf
+    min_log_loss = np.inf
     best_M = 0
 
-    norm_alpha = np.asarray(alpha_M)
-    for m_2 in range(m):
+    for m_2 in range(m+1):
+        norm_alpha = np.asarray(alpha_M[:m_2+1])/np.sum(alpha_M[:m_2+1])
 
         valid_probs_m = test_model(norm_alpha[m_2],models_M[m_2],v_ids,v_x)
 
         if m_2 == 0:
-            valid_probs = valid_probs_m
+            valid_probs = np.asarray(valid_probs_m)
         else:
-            valid_probs += valid_probs_m
+            valid_probs += np.asarray(valid_probs_m)
 
         logloss = 0.0
         for v_i,id in enumerate(v_ids):
@@ -407,14 +406,14 @@ for m in range(M):
                 norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
             logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
         logloss = -logloss/len(v_ids)
-
-        if logloss*0.99 < prev_log_loss:
-            prev_log_loss = logloss
+        print('Multi class log loss (valid) (alpha) (m=',m_2,'): ',logloss)
+        if logloss < min_log_loss:
+            min_log_loss = logloss
             best_M = m_2
-        else:
+        elif logloss*1.01 > min_log_loss:
             break
 
-    print('Multi class log loss (valid) (alpha) (m=',best_M,'): ',prev_log_loss)
+    print('Multi class log loss (valid) (alpha) (m=',best_M,'): ',min_log_loss)
 
 for m in range(best_M+1):
 

@@ -475,15 +475,15 @@ if __name__ == '__main__':
     param['eval_metric']='mlogloss'
     param['num_rounds'] = 2500
     param['learning_rate'] = 0.15
-    param['n_estimators'] = 600
+    param['n_estimators'] = 50
     xgboost = XGBoost(param)
 
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    pred_test = xgboost.test(test_x)
+    #xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    #pred_test = xgboost.test(test_x)
 
-    #xgboost.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    #pred_test = xgboost.test_clf(test_x)
+    xgboost.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    pred_test = xgboost.test_clf(test_x)
 
     print('\n Saving out probabilities (test)')
     import csv
