@@ -131,7 +131,7 @@ class UseXGBoost(AdaClassifier):
         self.tr_ids,self.tr_pred,self.tr_act = [],[],[]
 
     def train(self,tr_all,v_all,weights):
-        ids, pred, act = self.xgboost.train(tr_all,v_all,weights)
+        ids, pred, act = self.xgboost.train_clf(tr_all,v_all,weights)
         self.tr_ids = ids
         self.tr_pred = pred
         self.tr_act = act
@@ -142,7 +142,7 @@ class UseXGBoost(AdaClassifier):
     def get_test_results(self,ts_data):
         ts_ids, test_x = ts_data
 
-        return ts_ids,self.xgboost.test(test_x)
+        return ts_ids,self.xgboost.test_clf(test_x)
 
 from models_sklearn import SVM
 class UseSVM(AdaClassifier):

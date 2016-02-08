@@ -240,6 +240,63 @@ class XGBoost(object):
     def __init__(self,params):
         self.param = params
         self.bst = None
+        self.clf = None
+
+    def train_clf(self,tr_all,v_all,weights=None):
+
+        tr_ids,tr_x,tr_y = tr_all
+        v_ids,v_x,v_y = v_all
+
+        num_round = self.param['num_rounds']
+
+        #eval list is used to keep track of performance
+
+        print('\nTraining ...')
+
+        self.clf = xgb.XGBClassifier(max_depth=self.param['max_depth'], learning_rate=self.param['learning_rate'],
+                                     n_estimators=self.param['n_estimators'], silent=True, objective='multi:softprob',
+                                     nthread=self.param['nthread'], gamma=0, min_child_weight=1, max_delta_step=0,
+                                     subsample=1, colsample_bytree=1, base_score=0.5, seed=0)
+
+        if weights is not None:
+            self.clf.fit(np.asarray(tr_x), np.asarray(tr_y),np.asarray(weights)/np.max(weights))
+        else:
+            self.clf.fit(np.asarray(tr_x), np.asarray(tr_y))
+
+
+        #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
+        pred_train = self.clf.predict_proba(np.asarray(tr_x))
+
+        # get prediction
+        pred_valid = self.clf.predict_proba(np.asarray(v_x))
+
+        pred_y = [np.argmax(arr) for arr in pred_train]
+
+
+        logloss_tr = self.logloss(tr_ids,pred_train,tr_y,weights)
+        logloss_v = self.logloss(v_ids,pred_valid,v_y)
+        print('XGB logloss (train): ',logloss_tr)
+        print('XGB logloss (valid): ',logloss_v,'\n')
+        return tr_ids,pred_y,tr_y
+
+    def logloss(self,ids,probs,actuals,weights=None):
+        if weights is not None:
+            weights = np.asarray(weights)/np.max(weights)
+
+        logloss = 0.0
+        for i,id in enumerate(ids):
+            tmp_y = [0.,0.,0.]
+            tmp_y[actuals[i]]=1.
+            norm_v_probs = np.asarray(probs[i])
+            if any(norm_v_probs)==1.:
+                norm_v_probs = np.asarray([np.max([np.min([p,1-1e-15]),1e-15]) for p in norm_v_probs])
+            if weights is not None:
+                logloss += np.sum(np.asarray(weights[i])*np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
+            else:
+                logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
+
+        logloss = -logloss/len(ids)
+        return logloss
 
     def train(self,tr_all,v_all,weights=None):
 
@@ -247,47 +304,43 @@ class XGBoost(object):
         v_ids,v_x,v_y = v_all
 
         num_round = self.param['num_rounds']
-        xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
+        if weights is not None:
+            xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32),weight=np.asarray(weights)/np.max(weights))
+        else:
+            xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
         xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
 
         #eval list is used to keep track of performance
-        evallist = [ (xg_train,'train'), (xg_valid, 'valid') ]
+        evallist = [(xg_train,'train'), (xg_valid, 'eval')]
 
         print('\nTraining ...')
 
-        self.bst = xgb.train(self.param, xg_train, num_round, evallist,
-                             functools.partial(weighted_softmax_obj, weights),
-                             functools.partial(weighted_eval_metric, weights),
-                             early_stopping_rounds = 100)
+        epochs = 3
+        for ep in range(epochs):
+            self.bst = xgb.train(self.param, xg_train, 10, evallist)
+
+            #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
+            pred_train = self.bst.predict(xg_train,output_margin=True)
+            # get prediction
+            pred_valid = self.bst.predict(xg_valid,output_margin=True)
+
+            xg_valid.set_base_margin(pred_valid.flatten())
+            xg_train.set_base_margin(pred_train.flatten())
 
 
-        #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
-        pred_train = self.bst.predict(xg_train)
+        final_pred_valid = self.bst.predict(xg_valid)
 
-        # get prediction
-        pred_valid = self.bst.predict(xg_valid)
+        y_mat = []
+        for i in range(len(v_ids)):
+            temp = [0,0,0]
+            temp[v_y[i]] = 1.
+            y_mat.append(temp)
 
+        logloss = self.logloss(v_ids, final_pred_valid, v_y)
+        print('Valid: ',logloss)
         pred_y = [np.argmax(arr) for arr in pred_train]
 
         return tr_ids,pred_y,tr_y
-
-        '''
-        print('\n Saving out probabilities (valid)')
-        with open('xgboost_valid_probs.csv', 'w',newline='') as f:
-            import csv
-            writer = csv.writer(f)
-
-            row = ['id','pred_0','pred_1','pred_2','act_0','act_1','act_2']
-            writer.writerow(row)
-
-            labels = xg_valid.get_label()
-            for i,id in enumerate(v_ids):
-                row = [id]
-                row.extend(pred_valid[i])
-                temp = [0,0,0]
-                temp[int(labels[i])]=1
-                row.extend(temp)
-                writer.writerow(row)'''
 
 
     def cross_validate(self,param, tr_x,tr_y,v_x,v_y,num_round):
@@ -380,22 +433,17 @@ class XGBoost(object):
         pred_test = self.bst.predict(xg_test)
 
         return pred_test
-        '''print('\n Saving out probabilities (test)')
-        import csv
-        with open('xgboost_output.csv', 'w',newline='') as f:
-            class_dist = [0,0,0]
-            writer = csv.writer(f)
-            for id in correct_ids:
-                c_id = ts_ids.index(id)
-                probs = pred_test[int(c_id)]
-                row = [id,probs[0], probs[1], probs[2]]
-                class_dist[np.argmax(probs)] += 1
-                writer.writerow(row)'''
+
+    def test_clf(self,test_x):
+        pred_test = self.clf.predict_proba(np.asarray(test_x))
+        return pred_test
+
+
 
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,2)
+    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_modified_2_train.csv','features_modified_2_test.csv',True,2)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
@@ -417,19 +465,35 @@ if __name__ == '__main__':
     param['objective'] = 'multi:softprob'
     # scale weight of positive examples
     param['booster'] = 'gbtree'
-    param['eta'] = 0.9  # high eta values give better perf
-    param['max_depth'] = 15
+    param['eta'] = 0.2  # high eta values give better perf
+    param['max_depth'] = 6
     param['silent'] = 1
-    param['lambda'] = 0.5
-    param['alpha'] = 0.5
+    param['lambda'] = 0.1
+    param['alpha'] = 0.1
     param['nthread'] = 4
     param['num_class'] = 3
-    param['eval_metric']='merror'
-    param['num_rounds'] = 500
-
+    param['eval_metric']='mlogloss'
+    param['num_rounds'] = 2500
+    param['learning_rate'] = 0.15
+    param['n_estimators'] = 600
     xgboost = XGBoost(param)
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),[1/len(tr_y) for i in range(len(tr_y))])
 
+    #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    pred_test = xgboost.test(test_x)
 
+    #xgboost.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    #pred_test = xgboost.test_clf(test_x)
 
+    print('\n Saving out probabilities (test)')
+    import csv
+    with open('xgboost_output.csv', 'w',newline='') as f:
+        class_dist = [0,0,0]
+        writer = csv.writer(f)
+        for id in correct_ids:
+            c_id = ts_ids.index(id)
+            probs = pred_test[int(c_id)]
+            row = [id,probs[0], probs[1], probs[2]]
+            class_dist[np.argmax(probs)] += 1
+            writer.writerow(row)
 

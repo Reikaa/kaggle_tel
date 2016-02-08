@@ -90,7 +90,7 @@ with open('log_feature.csv', 'r',newline='') as f:
 important_features=[] # based on the values count for each feature
 
 for k,v in feature_count.items():
-    if v > 10:
+    if v > 1:
         important_features.append(k)
 max_feature = len(important_features)
 
@@ -354,8 +354,8 @@ def select_features(train_file,test_file,remove_header):
 # v for vector
 # n for nomarlize
 include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
-file_name = 'features_modified'
-#write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
-#write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
+file_name = 'features_modified_2'
+write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
+write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
 
-select_features('features_modified_train.csv','features_modified_test.csv',True)
+#select_features('features_modified_train.csv','features_modified_test.csv',True)

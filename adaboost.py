@@ -136,7 +136,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
-tr_data, v_data, test_data, correct_ts_ids = load_teslstra_data_v2('features_modified_train.csv','features_modified_test.csv',True,1)
+tr_data, v_data, test_data, correct_ts_ids = load_teslstra_data_v2('features_modified_2_train.csv','features_modified_2_test.csv',True,1)
 
 tr_ids,tr_x,tr_y  = tr_data
 v_ids,v_x,v_y = v_data
@@ -152,7 +152,7 @@ import collections
 dl_params_1 = collections.defaultdict()
 dl_params_1['batch_size'] = 50
 dl_params_1['iterations'] = 3
-dl_params_1['in_size'] = 254
+dl_params_1['in_size'] = 387
 dl_params_1['out_size'] = 3
 dl_params_1['hid_sizes'] = [100]
 dl_params_1['learning_rate'] = 0.25
@@ -163,7 +163,7 @@ dl_params_1['act'] = 'sigmoid'
 
 dl_params_2 = collections.defaultdict()
 dl_params_2['batch_size'] = 50
-dl_params_2['in_size'] = 254
+dl_params_2['in_size'] = 387
 dl_params_2['out_size'] = 3
 dl_params_2['hid_sizes'] = [500]
 dl_params_2['iterations'] = 3
@@ -176,7 +176,7 @@ dl_params_2['act'] = 'sigmoid'
 
 dl_params_3 = collections.defaultdict()
 dl_params_3['batch_size'] = 50
-dl_params_3['in_size'] = 254
+dl_params_3['in_size'] = 387
 dl_params_3['out_size'] = 3
 dl_params_3['hid_sizes'] = [1500]
 dl_params_3['iterations'] = 3
@@ -198,6 +198,8 @@ xgb_param_1['nthread'] = 4
 xgb_param_1['num_class'] = 3
 xgb_param_1['eval_metric']= 'mlogloss'
 xgb_param_1['num_rounds'] = 300
+xgb_param_1['learning_rate'] = 0.1
+xgb_param_1['n_estimators'] = 100
 
 xgb_param_2 = {}
 xgb_param_2['objective'] = 'multi:softprob'
@@ -211,6 +213,8 @@ xgb_param_2['nthread'] = 4
 xgb_param_2['num_class'] = 3
 xgb_param_2['eval_metric']= 'mlogloss'
 xgb_param_2['num_rounds'] = 300
+xgb_param_2['learning_rate'] = 0.1
+xgb_param_2['n_estimators'] = 100
 
 xgb_param_3 = {}
 xgb_param_3['objective'] = 'multi:softprob'
@@ -224,31 +228,20 @@ xgb_param_3['nthread'] = 4
 xgb_param_3['num_class'] = 3
 xgb_param_3['eval_metric']= 'mlogloss'
 xgb_param_3['num_rounds'] = 300
-
-xgb_param_4 = {}
-xgb_param_4['objective'] = 'multi:softprob'
-xgb_param_4['booster'] = 'gbtree'
-xgb_param_4['eta'] = 0.9  # high eta values give better perf
-xgb_param_4['max_depth'] = 20
-xgb_param_4['silent'] = 1
-xgb_param_4['lambda'] = 0.9
-xgb_param_4['alpha'] = 0.9
-xgb_param_4['nthread'] = 4
-xgb_param_4['num_class'] = 3
-xgb_param_4['eval_metric']= 'mlogloss'
-xgb_param_4['num_rounds'] = 300
+xgb_param_3['learning_rate'] = 0.15
+xgb_param_3['n_estimators'] = 100
 
 svm_params_1 = {}
-svm_params_1['kernel'] = 'wlinear'
+svm_params_1['kernel'] = 'rbf'
 
 svm_params_2 = {}
 svm_params_2['kernel'] = 'wexp'
-svm_params_2['gamma'] = 0.01
+svm_params_2['gamma'] = 0.0
 
 models_available = {}
 
 #models_available['svm_2'] = svm_params_2
-models_available['svm_1'] = svm_params_1
+#models_available['svm_1'] = svm_params_1
 
 #models_available['sdae_1'] = dl_params_1
 #models_available['sdae_2'] = dl_params_2
@@ -256,13 +249,12 @@ models_available['svm_1'] = svm_params_1
 
 #models_available['xgb_1'] = xgb_param_1
 #models_available['xgb_2'] = xgb_param_2
-#models_available['xgb_3'] = xgb_param_3
-#models_available['xgb_4'] = xgb_param_4
+models_available['xgb_3'] = xgb_param_3
 
 
 
 M = 50
-alpha_M = [0 for _ in range(M)] # m long list
+alpha_M = [] # m long list
 alpha_M_v2 = []
 acc_per_class_M = []
 models_M = []
@@ -270,9 +262,9 @@ model_names_M = []
 
 num_classes = 3
 
-def calc_loss(w,pred_y, act_y):
+def calc_loss(w, p_y, a_y):
 
-    loss = np.sum(np.multiply(w,[1 if pred_y[i]!=act_y[i] else 0 for i in range(len(w))]))
+    loss = np.sum(np.multiply(w, [1 if p_y[w_i] != a_y[w_i] else 0 for w_i in range(len(w))]))
     return loss
 
 def test_model(alpha_m, model, ts_ids, test_x):
@@ -282,7 +274,10 @@ def test_model(alpha_m, model, ts_ids, test_x):
     w_probs = []
     for i,p in enumerate(probs):
         p_class = np.argmax(p)
-        p = np.asarray(p) * alpha_m[p_class]
+        if alpha_m is list:
+            p = np.asarray(p) * alpha_m[p_class]
+        else:
+            p = np.asarray(p) * alpha_m
         w_probs.append(p.tolist())
 
     #return (np.asarray(probs) * np.asarray(alpha_m)).tolist()
@@ -335,34 +330,30 @@ for m in range(M):
     vec = np.multiply(w,[1 if best_pred[i]!=best_act[i] else 0 for i in range(len(best_pred))])
 
     vecs_v2 = []
-    weights = []
+    weight_means = []
     for i in range(num_classes):
-        temp = [(j,1) if best_pred[j]!= best_act[j] and best_act[j]==i else (j,0) for j in range(len(best_pred))]
+        temp = [(j, 1) if best_pred[j] != best_act[j] and best_act[j] == i else (j, 0) for j in range(len(best_pred))]
         print('Temp: ',len(temp))
         vec_v2 =[]
         tmp_weights = []
         for j,val in temp:
             if val != 0:
                 vec_v2.append(w[j]*val)
+
+        for j in range(len(best_act)):
+            if best_act[j]==i:
                 tmp_weights.append(w[j])
 
-        weights.append(tmp_weights)
+        weight_means.append((len(tmp_weights),np.mean(tmp_weights)))
         vecs_v2.append(vec_v2)
 
-    print_weights = []
-    for tmp_idx in range(len(weights)):
-        print('weights ', len(weights[tmp_idx]))
-        print_weights.append(np.mean(weights[tmp_idx]))
-    print('Weigts: ',print_weights)
+    print('Weigts: ',weight_means)
 
     err_m = np.sum(vec)/np.sum(w)
 
     err_m_v2 = []
     for tmp_idx in range(len(vecs_v2)):
-        err_m_v2.append(np.sum(vecs_v2[tmp_idx])/np.sum(w))
-
-    print('Err_m : ',err_m)
-    print('Err_m_v2: ',err_m_v2)
+        err_m_v2.append(np.sum(vecs_v2[tmp_idx])/(weight_means[tmp_idx][0]*weight_means[tmp_idx][1]))
 
     if err_m<=0 or err_m >= (1-(1/num_classes)):
         print('Best err: ',err_m,' reached 0 or went too high')
@@ -370,9 +361,15 @@ for m in range(M):
         break
 
     print('Err for the (m=',m,'): ',err_m)
-    alpha_M[m] = np.log(((1+1e-15)-err_m)/(err_m+1e-15)) + np.log(num_classes-1)
+    err_m = np.max([np.min([err_m,1-1e-15]),1e-15])
+    alpha_M.append(np.log((1-err_m)/err_m) + np.log(num_classes-1))
 
-    tmp_alpha = (np.log(np.asarray((1+1e-15)-np.asarray(err_m_v2))/(np.asarray(err_m_v2)+1e-15)) + np.log(num_classes-1))
+    err_m_v2 = [np.max([np.min([e,1-1e-10]),1e-15]) for e in err_m_v2]
+    print('Err_m : ',err_m)
+    print('Err_m_v2: ',err_m_v2)
+    tmp_alpha = np.log(np.divide(np.asarray(1-np.asarray(err_m_v2)),np.asarray(err_m_v2))) + np.log(num_classes-1)
+    if np.min(tmp_alpha)<0:
+        tmp_alpha = -np.min(tmp_alpha) + tmp_alpha
     alpha_M_v2.append(tmp_alpha/np.sum(tmp_alpha))
 
     print('Alpha for the ',m,' th model: ',alpha_M[m])
@@ -384,43 +381,51 @@ for m in range(M):
     # renormalize
     w = np.asarray(w)*1.0/np.sum(w)
 
-print('Finished boosting in ', m, ' iteration')
-norm_alpha = np.asarray(alpha_M)*1.0/np.sum(alpha_M)
-#norm_alpha_v2 = np.asarray(alpha_M_v2)*1.0/np.sum(alpha_M_v2,axis=0)
 
+    print('Calculating multiclass log loss')
 
-print('Calculating multiclass log loss')
+    # Using alpha #
+    prev_log_loss = np.inf
+    best_M = 0
 
-for m in range(M):
+    norm_alpha = np.asarray(alpha_M)
+    for m_2 in range(m):
 
-    valid_probs_m = test_model(alpha_M_v2[m],models_M[m],v_ids,v_x)
+        valid_probs_m = test_model(norm_alpha[m_2],models_M[m_2],v_ids,v_x)
 
-    if m == 0:
-        valid_probs = valid_probs_m
-    else:
-        valid_probs += valid_probs_m
+        if m_2 == 0:
+            valid_probs = valid_probs_m
+        else:
+            valid_probs += valid_probs_m
 
-logloss = 0.0
-for i,id in enumerate(v_ids):
-    tmp_y = [0.,0.,0.]
-    tmp_y[v_y[i]]=1.
-    norm_v_probs = np.asarray(valid_probs[i],dtype=np.float32)*1.0/np.sum(valid_probs[i])
-    if any(norm_v_probs)==1.:
-        norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
-    logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
-logloss = -logloss/len(v_ids)
-print('Multi class log loss (valid): ',logloss)
+        logloss = 0.0
+        for v_i,id in enumerate(v_ids):
+            tmp_y = [0.,0.,0.]
+            tmp_y[v_y[v_i]]=1.
+            norm_v_probs = np.asarray(valid_probs[v_i],dtype=np.float32)*1.0/np.sum(valid_probs[v_i])
+            if any(norm_v_probs)==1.:
+                norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
+            logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
+        logloss = -logloss/len(v_ids)
 
-for m in range(M):
+        if logloss*0.99 < prev_log_loss:
+            prev_log_loss = logloss
+            best_M = m_2
+        else:
+            break
+
+    print('Multi class log loss (valid) (alpha) (m=',best_M,'): ',prev_log_loss)
+
+for m in range(best_M+1):
 
     print('Testing phase for M=',m,'\n')
-    weigh_probs_m = test_model(alpha_M_v2[m],models_M[m],ts_ids,test_x)
+    weigh_probs_m = test_model(alpha_M[m],models_M[m],ts_ids,test_x)
     print('Model: ',models_M[m].__class__.__name__,' (',model_names_M[m],')')
     print('Alpha: ',alpha_M_v2[m])
     if m == 0:
-        weigh_probs = weigh_probs_m
+        weigh_test_probs = weigh_probs_m
     else:
-        weigh_probs += weigh_probs_m
+        weigh_test_probs += weigh_probs_m
 
 print('\n Saving out probabilities (test)')
 import csv
@@ -429,7 +434,7 @@ with open('adaboost_output.csv', 'w',newline='') as f:
     writer = csv.writer(f)
     for id in correct_ts_ids:
         c_id = ts_ids.index(id)
-        prob = weigh_probs[int(c_id)]
+        prob = weigh_test_probs[int(c_id)]
         row = [id,prob[0]/np.sum(prob), prob[1]/np.sum(prob), prob[2]/np.sum(prob)]
         writer.writerow(row)
 

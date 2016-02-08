@@ -154,13 +154,25 @@ class SVM(object):
 
     def train(self,tr_all,v_all,weights=None):
 
+        tr_ids,tr_x,tr_y = tr_all
+        v_ids,v_x,v_y = v_all
+
+        weight_means = []
+        for i in range(3):
+            tmp_weights = []
+            for j in range(len(tr_y)):
+                if tr_y[j]==i:
+                    tmp_weights.append(weights[j])
+            weight_means.append(np.mean(tmp_weights))
+
+        weight_means = np.asarray(weight_means)/np.sum(weight_means)
+        class_weights = {0:weight_means[0],1:weight_means[1],2:weight_means[2]}
         if self.params['kernel'] == 'wlinear':
             self.svm = svm.SVC(kernel=partial(weighted_lin_kernel,weights))
         elif self.params['kernel'] == 'wexp':
             self.svm = svm.SVC(kernel=partial(weighted_exp_kernel,weights,self.params['gamma']))
-
-        tr_ids,tr_x,tr_y = tr_all
-        v_ids,v_x,v_y = v_all
+        elif self.params['kernel'] == 'rbf':
+            self.svm = svm.SVC(kernel='rbf',class_weight=class_weights)
 
         print('Fitting the model ...')
         #self.svm.fit(v_x,v_y)
@@ -168,7 +180,19 @@ class SVM(object):
 
         print('Predict ...')
         pred_tr = self.svm.predict(np.asarray(tr_x,dtype=np.float32))
+        pred_valid = self.svm.predict(np.asarray(v_x,dtype=np.float32))
 
+        logloss = 0.0
+        for i,id in enumerate(v_ids):
+            tmp_y = [0.,0.,0.]
+            tmp_y[v_y[i]]=1.
+            norm_v_probs = [0.,0.,0.]
+            norm_v_probs[pred_valid[i]] = 1.0
+            if any(norm_v_probs)==1.:
+                norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
+            logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
+        logloss = -logloss/len(v_ids)
+        print('SVM logloss (valid): ',logloss)
         return tr_ids,pred_tr,tr_y
 
     def test(self,test_x):
