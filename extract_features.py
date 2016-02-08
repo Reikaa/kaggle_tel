@@ -227,7 +227,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                     elif 'v' in include['loc']:
                         loc_vec = [v[0]]
                 else:
-                    loc_vec = turn_to_vec(v[0],max_loc)
+                    from math import floor
+                    loc_vec = turn_to_vec([floor(v[0]/100)],floor(max_loc/100))
 
 
             if 'feat' in include:
@@ -265,7 +266,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
 
             if not doOnce:
-                header = ['id','loc']
+                header = ['id']
+                header.extend(['loc_'+ str(i) for i in range(len(loc_vec))])
                 header.extend(['feat_'+str(i) for i in range(len(feature_vec))])
                 header.extend(['sev_'+str(i) for i in range(len(sev_vec))])
                 header.extend(['eve_'+str(i) for i in range(len(event_vec))])
@@ -353,7 +355,7 @@ def select_features(train_file,test_file,remove_header):
 # s for single value
 # v for vector
 # n for nomarlize
-include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
+include = {'id':'s','loc':'vn','feat':'vn','sev':'v','eve':'v','res':'v'}
 file_name = 'features_modified_2'
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
 write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)

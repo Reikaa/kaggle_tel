@@ -160,3 +160,20 @@ class UseSVM(AdaClassifier):
     def get_test_results(self,ts_data):
         ts_ids, test_x = ts_data
         return ts_ids,self.svm.test(test_x)
+
+from models_sklearn import RandForest
+class UseRF(AdaClassifier):
+
+    def __init__(self,params):
+        self.rf = RandForest(params)
+        self.tr_ids,self.tr_pred,self.tr_act = [],[],[]
+
+    def train(self,tr_all,v_all,weights):
+        self.tr_ids,self.tr_pred,self.tr_act = self.rf.train(tr_all,v_all,weights)
+
+    def get_labels(self):
+        return self.tr_ids,self.tr_pred,self.tr_act
+
+    def get_test_results(self,ts_data):
+        ts_ids, test_x = ts_data
+        return ts_ids,self.rf.test(test_x)

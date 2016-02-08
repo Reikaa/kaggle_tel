@@ -247,8 +247,6 @@ class XGBoost(object):
         tr_ids,tr_x,tr_y = tr_all
         v_ids,v_x,v_y = v_all
 
-        num_round = self.param['num_rounds']
-
         #eval list is used to keep track of performance
 
         print('\nTraining ...')
@@ -315,7 +313,7 @@ class XGBoost(object):
 
         print('\nTraining ...')
 
-        epochs = 3
+        epochs = 10
         for ep in range(epochs):
             self.bst = xgb.train(self.param, xg_train, 10, evallist)
 
@@ -465,8 +463,8 @@ if __name__ == '__main__':
     param['objective'] = 'multi:softprob'
     # scale weight of positive examples
     param['booster'] = 'gbtree'
-    param['eta'] = 0.2  # high eta values give better perf
-    param['max_depth'] = 6
+    param['eta'] = 0.1  # high eta values give better perf
+    param['max_depth'] = 10
     param['silent'] = 1
     param['lambda'] = 0.1
     param['alpha'] = 0.1
@@ -474,16 +472,21 @@ if __name__ == '__main__':
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
     param['num_rounds'] = 2500
-    param['learning_rate'] = 0.15
-    param['n_estimators'] = 50
+
+    param2= {}
+    param2['learning_rate'] = 0.1
+    param2['n_estimators'] = 100
+    param2['max_depth'] = 10
+    param2['nthread'] = 4
     xgboost = XGBoost(param)
+    xgboost2 = XGBoost(param2)
 
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    #xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    #pred_test = xgboost.test(test_x)
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    pred_test = xgboost.test(test_x)
 
-    xgboost.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    pred_test = xgboost.test_clf(test_x)
+    xgboost2.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    pred_test = xgboost2.test_clf(test_x)
 
     print('\n Saving out probabilities (test)')
     import csv

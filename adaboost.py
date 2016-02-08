@@ -136,7 +136,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
     return all_data
 
-tr_data, v_data, test_data, correct_ts_ids = load_teslstra_data_v2('features_modified_2_train.csv','features_modified_2_test.csv',True,1)
+tr_data, v_data, test_data, correct_ts_ids = load_teslstra_data_v2('features_modified_2_train.csv','features_modified_2_test.csv',True,13)
 
 tr_ids,tr_x,tr_y  = tr_data
 v_ids,v_x,v_y = v_data
@@ -145,17 +145,17 @@ ts_ids, test_x = test_data
 # a model should take 2 np array tuples as (tr_x,tr_y),(v_x,v_y)
 # and output pred labels, actual labels
 
-from adaboost_classifiers import UseSDAE,UseXGBoost,UseSVM
+from adaboost_classifiers import UseSDAE,UseXGBoost,UseSVM,UseRF
 import collections
 
 
 dl_params_1 = collections.defaultdict()
 dl_params_1['batch_size'] = 50
-dl_params_1['iterations'] = 3
-dl_params_1['in_size'] = 387
+dl_params_1['iterations'] = 1
+dl_params_1['in_size'] = 398
 dl_params_1['out_size'] = 3
-dl_params_1['hid_sizes'] = [100]
-dl_params_1['learning_rate'] = 0.25
+dl_params_1['hid_sizes'] = [500]
+dl_params_1['learning_rate'] = 0.75
 dl_params_1['pre_epochs'] = 5
 dl_params_1['fine_epochs'] = 100
 dl_params_1['lam'] = 0.0
@@ -163,7 +163,7 @@ dl_params_1['act'] = 'sigmoid'
 
 dl_params_2 = collections.defaultdict()
 dl_params_2['batch_size'] = 50
-dl_params_2['in_size'] = 387
+dl_params_2['in_size'] = 398
 dl_params_2['out_size'] = 3
 dl_params_2['hid_sizes'] = [500]
 dl_params_2['iterations'] = 3
@@ -176,7 +176,7 @@ dl_params_2['act'] = 'sigmoid'
 
 dl_params_3 = collections.defaultdict()
 dl_params_3['batch_size'] = 50
-dl_params_3['in_size'] = 387
+dl_params_3['in_size'] = 398
 dl_params_3['out_size'] = 3
 dl_params_3['hid_sizes'] = [1500]
 dl_params_3['iterations'] = 3
@@ -228,8 +228,8 @@ xgb_param_3['nthread'] = 4
 xgb_param_3['num_class'] = 3
 xgb_param_3['eval_metric']= 'mlogloss'
 xgb_param_3['num_rounds'] = 300
-xgb_param_3['learning_rate'] = 0.3
-xgb_param_3['n_estimators'] = 250
+xgb_param_3['learning_rate'] = 0.01
+xgb_param_3['n_estimators'] = 500
 
 svm_params_1 = {}
 svm_params_1['kernel'] = 'rbf'
@@ -237,6 +237,9 @@ svm_params_1['kernel'] = 'rbf'
 svm_params_2 = {}
 svm_params_2['kernel'] = 'wexp'
 svm_params_2['gamma'] = 0.0
+
+rf_params = {}
+rf_params['max_depth'] = 10
 
 models_available = {}
 
@@ -246,13 +249,13 @@ models_available = {}
 #models_available['sdae_2'] = dl_params_2
 #models_available['sdae_3'] = dl_params_3
 
-#models_available['xgb_1'] = xgb_param_1
-models_available['xgb_2'] = xgb_param_2
-models_available['xgb_3'] = xgb_param_3
+models_available['xgb_1'] = xgb_param_1
+#models_available['xgb_2'] = xgb_param_2
+#models_available['xgb_3'] = xgb_param_3
+#models_available['rf_1'] = rf_params
 
 
-
-M = 50
+M = 500
 alpha_M = [] # m long list
 alpha_M_v2 = []
 acc_per_class_M = []
@@ -273,17 +276,36 @@ def test_model(alpha_m, model, ts_ids, test_x):
     w_probs = []
     for i,p in enumerate(probs):
         p_class = np.argmax(p)
-        if alpha_m is list:
-            p = np.asarray(p) * alpha_m[p_class]
+
+        if alpha_m is np.float:
+            p[p_class] = np.asarray(p) * alpha_m
         else:
-            p = np.asarray(p) * alpha_m
+            p = np.asarray(p) * alpha_m[p_class]
         w_probs.append(p.tolist())
 
     #return (np.asarray(probs) * np.asarray(alpha_m)).tolist()
     return w_probs
 
-for m in range(M):
+def test_model_exact(alpha_m, model, ts_ids, test_x):
+    #norm_alpha_m is a 3 element array
+    ids,probs = model.get_test_results((ts_ids,test_x))
 
+    w_act = []
+    for i,p in enumerate(probs):
+        tmp = [0,0,0]
+        p_class = np.argmax(p)
+        tmp[p_class] = alpha_m
+        w_act.append(tmp)
+
+    return w_act
+
+# Using alpha #
+min_log_loss = np.inf
+best_M = 0
+good_m_vals = []
+type = 'probs' # 'actual' or 'prob'
+
+for m in range(M):
 
     best_k,best_model,min_loss = None,None,np.inf
     best_ids,best_pred,best_act = [],[],[]
@@ -296,10 +318,14 @@ for m in range(M):
             get_labels = model.get_labels
         elif 'xgb' in k:
             model = UseXGBoost(models_available[k])
-            train= model.train
+            train = model.train
             get_labels = model.get_labels
         elif 'svm' in k:
             model = UseSVM(models_available[k])
+            train= model.train
+            get_labels = model.get_labels
+        elif 'rf' in k:
+            model = UseRF(models_available[k])
             train= model.train
             get_labels = model.get_labels
 
@@ -367,9 +393,10 @@ for m in range(M):
     print('Err_m : ',err_m)
     print('Err_m_v2: ',err_m_v2)
     tmp_alpha = np.log(np.divide(np.asarray(1-np.asarray(err_m_v2)),np.asarray(err_m_v2))) + np.log(num_classes-1)
+
     if np.min(tmp_alpha)<0:
         tmp_alpha = -np.min(tmp_alpha) + tmp_alpha
-    alpha_M_v2.append(tmp_alpha/np.sum(tmp_alpha))
+    alpha_M_v2.append(tmp_alpha*alpha_M[-1]/np.sum(tmp_alpha))
 
     print('Alpha for the ',m,' th model: ',alpha_M[m])
     print('Alpha v2 for the ',m,' th model: ',alpha_M_v2[m])
@@ -380,38 +407,47 @@ for m in range(M):
     # renormalize
     w = np.asarray(w)*1.0/np.sum(w)
 
-
     print('Calculating multiclass log loss')
 
-    # Using alpha #
-    min_log_loss = np.inf
-    best_M = 0
+    norm_alpha = np.asarray(alpha_M)
+    #norm_alpha[1:] = norm_alpha[1:]/np.sum(norm_alpha)
+    tmp_good_m = []
+    tmp_good_m.extend(good_m_vals)
+    tmp_good_m.append(m)
+    for m_2 in tmp_good_m:
 
-    for m_2 in range(m+1):
-        norm_alpha = np.asarray(alpha_M[:m_2+1])/np.sum(alpha_M[:m_2+1])
-
-        valid_probs_m = test_model(norm_alpha[m_2],models_M[m_2],v_ids,v_x)
+        if type == 'actual':
+            valid_probs_m = test_model_exact(list(norm_alpha[m_2]),models_M[m_2],v_ids,v_x)
+        elif type == 'probs':
+            valid_probs_m = test_model(alpha_M_v2[m_2],models_M[m_2],v_ids,v_x)
 
         if m_2 == 0:
             valid_probs = np.asarray(valid_probs_m)
         else:
             valid_probs += np.asarray(valid_probs_m)
 
-        logloss = 0.0
-        for v_i,id in enumerate(v_ids):
-            tmp_y = [0.,0.,0.]
-            tmp_y[v_y[v_i]]=1.
+    logloss = 0.0
+    for v_i,id in enumerate(v_ids):
+        tmp_y = [0.,0.,0.]
+        tmp_y[v_y[v_i]]=1.
+        if type=='actual':
+            valid_exacts = np.asarray(valid_probs[v_i],dtype=np.float32)
+            norm_v_probs = [0,0,0]
+            norm_v_probs[np.argmax(valid_exacts)] = 1.
+        elif type == 'probs':
             norm_v_probs = np.asarray(valid_probs[v_i],dtype=np.float32)*1.0/np.sum(valid_probs[v_i])
-            if any(norm_v_probs)==1.:
-                norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
-            logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
-        logloss = -logloss/len(v_ids)
-        print('Multi class log loss (valid) (alpha) (m=',m_2,'): ',logloss)
-        if logloss < min_log_loss:
-            min_log_loss = logloss
-            best_M = m_2
-        elif logloss*1.01 > min_log_loss:
-            break
+        if any(norm_v_probs)==1.:
+            norm_v_probs = np.asarray([np.max([np.min(p,1-1e-15),1e-15]) for p in norm_v_probs])
+        logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(norm_v_probs)))
+
+    logloss = -logloss/len(v_ids)
+    print('Multi class log loss (valid) (alpha) (m=',m_2,'): ',logloss)
+    if logloss < min_log_loss:
+        min_log_loss = logloss
+        best_M = m_2
+        good_m_vals.append(best_M)
+    #elif logloss*1.01 > min_log_loss:
+    #    break
 
     print('Multi class log loss (valid) (alpha) (m=',best_M,'): ',min_log_loss)
 
