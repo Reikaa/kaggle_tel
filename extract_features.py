@@ -224,10 +224,10 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
                         loc_vec = [v[0]*1.0/max_loc]
-
                 elif 'v' in include['loc']:
                     from math import floor
                     loc_vec = turn_to_vec([floor(v[0]/100)],floor(max_loc*1./100))
+
 
 
             if 'feat' in include:
@@ -352,8 +352,11 @@ def select_features(train_file,test_file,remove_header):
 # s for single value
 # v for vector
 # n for nomarlize
+
 include = {'id':'s','loc':'v','feat':'v','sev':'v','eve':'v','res':'v'}
 file_name = 'features_non_norm'
+
+
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
 write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
 
