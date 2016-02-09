@@ -136,9 +136,11 @@ class MyXGBClassifier(object):
 
     def __init__(self, n_rounds=100, **params):
         self.params = params
+        self.params.update({'booster':'gbtree'})
         self.params.update({'silent':1})
         self.params.update({'objective': 'multi:softprob'})
         self.params.update({'num_class': 3})
+        self.params.update({'eval_metric':'mlogloss'})
         self.clf = None
         self.n_rounds = n_rounds
 
@@ -163,8 +165,8 @@ class MyXGBClassifier(object):
         self.params.update(params)
         return self
 
-    #def score(self, X, Y):
-    #    return 1 / scorer(self,X, Y)
+    def score(self, X, Y):
+        return 1 / logloss(self,X, Y)
 
 from sklearn.grid_search import GridSearchCV
 
@@ -184,14 +186,17 @@ def logloss(est, X, Y):
 
     return logloss
 
+def scorer_logloss(est, X, Y):
+    return 1./logloss(est,X, Y)
+
 def run_grid_search(params,X,Y,n_rounds,get_original=False):
 
-    clf = MyXGBClassifier(n_rounds=100,eta=0.2,max_depth=10,subsample=0.9)
+    clf = MyXGBClassifier(n_rounds=n_rounds,eta=0.2,max_depth=10,subsample=0.9,colsample_bytree=0.9)
 
     if get_original:
         return clf
     else:
-        gridsearch = GridSearchCV(clf, params, scoring='log_loss', n_jobs=10, cv=3, refit=True)
+        gridsearch = GridSearchCV(clf, params, scoring=scorer_logloss, n_jobs=10, cv=3, refit=True)
 
     print('Fitting (Grid Search) ...')
     gridsearch.fit(X,Y)
@@ -211,7 +216,7 @@ def report(grid_scores, n_top=3):
 
 if __name__ == '__main__':
 
-    drop_cols = [None,'eve']
+    drop_cols = [None]
 
     for d in drop_cols:
         tr_data, test_data, correct_ids = load_teslstra_data_v3('features_non_norm_train.csv','features_non_norm_test.csv',d)
@@ -222,15 +227,15 @@ if __name__ == '__main__':
 
 
         parameters = {
-            'eta':[0.2,0.3,0.5],
-            'max_depth': [10, 50, 100],
-            'subsample': [0.5, 0.9],
-            'colsample_bytree': [0.9], #out of 0.5, 0.9 -> 0.9
+            'eta':[0.1,0.15,0.2],
+            'max_depth': [5, 10, 20],
+            'lambda': [0.9, 0.99],
+            'alpha': [0.9,0.99]
             #'max_delta_step': [0]
         }
 
-        isOriginal = True
-        clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),10,isOriginal)
+        isOriginal = False
+        clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70,isOriginal)
 
         '''tmp_params = {
             'max_depth': 10,
@@ -262,3 +267,7 @@ if __name__ == '__main__':
                     probs = test_probs[int(c_id)]
                     row = [id,probs[0], probs[1], probs[2]]
                     writer.writerow(row)
+
+
+#Mean validation score: 1.815 (std: 0.021)
+#Parameters: {'max_depth': 5, 'eta': 0.2, 'alpha': 0.9, 'lambda': 0.9}

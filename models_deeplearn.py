@@ -63,6 +63,7 @@ def load_teslstra_data(train_file,test_file,remove_header=False,start_col=1):
     valid_x,valid_y = get_shared_data(valid_set)
     test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
 
+
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
@@ -201,15 +202,21 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
         return shared_x,T.cast(shared_y,'int32')
 
 
+    all_x = []
+    all_x.extend(train_set[0])
+    all_x.extend(valid_set[0])
+    all_x.extend(test_set[0])
+
     train_x,train_y = get_shared_data(train_set)
     valid_x,valid_y = get_shared_data(valid_set)
     test_x = shared(value=np.asarray(test_set[0],dtype=config.floatX),borrow=True)
+    all_theano_x = shared(value=np.asarray(all_x,dtype=config.floatX),borrow=True)
 
     print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
     print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
     print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
 
-    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
+    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids,all_theano_x]
 
     return all_data
 
@@ -462,15 +469,14 @@ class SDAE(object):
         return test
 
 
-    def pre_train(self,x,y):
+    def pre_train(self,x):
         idx = T.iscalar('idx')
         greedy_pretrain_funcs = []
         for i,layer in enumerate(self.layers):
             print('compiling pretrain function for layer ',i)
             updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(self.pre_costs[i],wrt=layer.params))]
             greedy_pretrain_funcs.append(function(inputs=[idx],outputs=self.pre_costs[i],updates=updates,
-                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
-                                                        self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]
+                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]
                                                         },on_unused_input='warn'))
 
         def train(batch_id):
@@ -689,28 +695,28 @@ if __name__ == '__main__':
     remove_header = True
 
     save_features = True
-    save_features_idx = 1
+    save_features_idx = 2
 
     crossValidate = False
 
     # seems pretraining helps to achieve a lower finetune error at the beginning
     isPretrained = True
-    pre_epochs = 5
+    pre_epochs = 50
     finetune_epochs = 350
 
     batch_size = 10
-    iterations = 5
+    iterations = 2
 
     lam = 0.0
-    learning_rate = 0.25
+    learning_rate = 0.08
     # relu is only for pretraining
     act = 'sigmoid'
 
-    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_2_train.csv',
+    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids,all_x = load_teslstra_data_v2('features_modified_2_train.csv',
                                                                'features_modified_2_test.csv',remove_header,1)
     in_size = 398
     out_size = 3
-    hid_sizes = [500,250]
+    hid_sizes = [500,250,500]
 
     print('--------------------------- Model Info ---------------------------')
     print('Batch size: ', batch_size)
@@ -722,6 +728,7 @@ if __name__ == '__main__':
 
 
     from math import ceil
+    n_pretrain_batches = ceil(all_x.get_value(borrow=True).shape[0] / batch_size)
     n_train_batches = ceil(train[0].get_value(borrow=True).shape[0] / batch_size)
     n_valid_batches = ceil(valid[0].get_value(borrow=True).shape[0] / batch_size)
     n_test_batches = ceil(test_x.get_value(borrow=True).shape[0])
@@ -735,7 +742,7 @@ if __name__ == '__main__':
         test_func = sdae.test(test_x)
 
         if not crossValidate:
-            pretrain_func = sdae.pre_train(train[0],train[1])
+            pretrain_func = sdae.pre_train(all_x)
             finetune_func = sdae.fine_tune(train[0],train[1])
             finetune_valid_func = sdae.fine_tune(valid[0],valid[1])
 
@@ -763,7 +770,7 @@ if __name__ == '__main__':
             if isPretrained:
                 for epoch in range(pre_epochs):
                     pre_train_cost = []
-                    for b in range(n_train_batches):
+                    for b in range(n_pretrain_batches):
                         pre_train_cost.append(pretrain_func(b))
                     print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
 
