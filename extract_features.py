@@ -224,10 +224,10 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
                         loc_vec = [v[0]*1.0/max_loc]
-                    elif 'v' in include['loc']:
-                        loc_vec = [v[0]]
-                else:
-                    loc_vec = turn_to_vec(v[0],max_loc)
+
+                elif 'v' in include['loc']:
+                    from math import floor
+                    loc_vec = turn_to_vec([floor(v[0]/100)],floor(max_loc*1./100))
 
 
             if 'feat' in include:
@@ -265,7 +265,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
 
             if not doOnce:
-                header = ['id','loc']
+                header = ['id']
+                header.extend(['loc_'+str(i) for i in range(len(loc_vec))])
                 header.extend(['feat_'+str(i) for i in range(len(feature_vec))])
                 header.extend(['sev_'+str(i) for i in range(len(sev_vec))])
                 header.extend(['eve_'+str(i) for i in range(len(event_vec))])
@@ -283,13 +284,11 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             write_row.extend(res_vec)
 
             if noise:
-                noise_vec = np.random.binomial(1,0.25,(len(write_row)))*np.random.random((len(write_row)))*0.01
-                write_row[1:] = [x+y for x,y in zip(write_row[1:],noise_vec.tolist())]
+                noise_vec = np.random.binomial(1,0.25,(len(write_row)))*np.random.random((len(write_row)))*0.1
+                write_row[1:] = [np.min([x+y,1.]) for x,y in zip(write_row[1:],noise_vec.tolist())]
             if isTrain:
                 out = v[1]
                 write_row.extend([out])
-
-            print('len write row: ',len(write_row))
 
             writer.writerow(write_row)
 
@@ -353,8 +352,8 @@ def select_features(train_file,test_file,remove_header):
 # s for single value
 # v for vector
 # n for nomarlize
-include = {'id':'s','loc':'sn','feat':'vn','sev':'v','eve':'v','res':'v'}
-file_name = 'features_modified_2'
+include = {'id':'s','loc':'v','feat':'v','sev':'v','eve':'v','res':'v'}
+file_name = 'features_non_norm'
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
 write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
 

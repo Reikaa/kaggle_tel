@@ -248,7 +248,7 @@ models_available = {}
 
 #models_available['xgb_1'] = xgb_param_1
 models_available['xgb_2'] = xgb_param_2
-models_available['xgb_3'] = xgb_param_3
+#models_available['xgb_3'] = xgb_param_3
 
 
 

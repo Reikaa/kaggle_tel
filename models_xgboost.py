@@ -315,7 +315,7 @@ class XGBoost(object):
 
         print('\nTraining ...')
 
-        epochs = 3
+        epochs = 10
         for ep in range(epochs):
             self.bst = xgb.train(self.param, xg_train, 10, evallist)
 
@@ -443,7 +443,7 @@ class XGBoost(object):
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_modified_2_train.csv','features_modified_2_test.csv',True,2)
+    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_train.csv','features_test.csv',True,1)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
@@ -474,16 +474,20 @@ if __name__ == '__main__':
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
     param['num_rounds'] = 2500
-    param['learning_rate'] = 0.15
-    param['n_estimators'] = 50
+    param['learning_rate'] = 0.3
+    param['n_estimators'] = 100
     xgboost = XGBoost(param)
 
-    #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    #xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    #pred_test = xgboost.test(test_x)
+    weights = [1 if tr_y[i]==2 else 0.6 for i in range(len(tr_y))]
 
     xgboost.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
     pred_test = xgboost.test_clf(test_x)
+
+
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    pred_test = xgboost.test(test_x)
+
+
 
     print('\n Saving out probabilities (test)')
     import csv

@@ -491,6 +491,11 @@ class SDAE(object):
             params.extend([self.softmax.W,self.softmax.b])
             updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(self.disc_cost,wrt=params))]
             theano_output = self.softmax.error
+
+            theano_finetune = function(inputs=[idx],outputs=theano_output,updates=updates,
+                                                   givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                            self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size]
+                                                            },on_unused_input='warn')
         else:
             for layer in self.layers:
                 params.extend([layer.W,layer.b])
@@ -519,11 +524,11 @@ class SDAE(object):
 
             updates = [(param, param - self.learn_rate * grad) for param, grad in zip(params, T.grad(weigh_logloss,wrt=params))]
 
-        theano_finetune = function(inputs=[idx],outputs=theano_output,updates=updates,
-                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
-                                                        self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size],
-                                                         weight_batch: weights[idx * self.batch_size:(idx+1) * self.batch_size]
-                                                        },on_unused_input='warn')
+            theano_finetune = function(inputs=[idx],outputs=theano_output,updates=updates,
+                                                   givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                            self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                             weight_batch: weights[idx * self.batch_size:(idx+1) * self.batch_size]
+                                                            },on_unused_input='warn')
 
         def fine_tune_fn(batch_id):
             for _ in range(self.iterations):
@@ -683,8 +688,8 @@ if __name__ == '__main__':
 
     remove_header = True
 
-    save_features = False
-    save_features_idx = 0
+    save_features = True
+    save_features_idx = 1
 
     crossValidate = False
 
@@ -693,16 +698,19 @@ if __name__ == '__main__':
     pre_epochs = 5
     finetune_epochs = 350
 
-    batch_size = 1
-
-    in_size = 254
-    out_size = 3
-    hid_sizes = [150]
+    batch_size = 10
+    iterations = 5
 
     lam = 0.0
     learning_rate = 0.25
     # relu is only for pretraining
     act = 'sigmoid'
+
+    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_2_train.csv',
+                                                               'features_modified_2_test.csv',remove_header,1)
+    in_size = 398
+    out_size = 3
+    hid_sizes = [500,250]
 
     print('--------------------------- Model Info ---------------------------')
     print('Batch size: ', batch_size)
@@ -712,18 +720,17 @@ if __name__ == '__main__':
     print('------------------------------------------------------------------')
     print()
 
-    train,valid,test_x,my_test_ids,correct_ids,train_ids,valid_ids = load_teslstra_data_v2('features_modified_train.csv',
-                                                               'features_modified_test.csv',remove_header,1)
 
-    n_train_batches = int(train[0].get_value(borrow=True).shape[0] / batch_size)
-    n_valid_batches = int(valid[0].get_value(borrow=True).shape[0] / batch_size)
-    n_test_batches = int(test_x.get_value(borrow=True).shape[0])
+    from math import ceil
+    n_train_batches = ceil(train[0].get_value(borrow=True).shape[0] / batch_size)
+    n_valid_batches = ceil(valid[0].get_value(borrow=True).shape[0] / batch_size)
+    n_test_batches = ceil(test_x.get_value(borrow=True).shape[0])
 
     test_out = []
     test_out_probs = []
     model = 'SDAE'
     if model == 'SDAE':
-        sdae = SDAE(in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act)
+        sdae = SDAE(in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act,iterations)
         sdae.process()
         test_func = sdae.test(test_x)
 
@@ -771,7 +778,7 @@ if __name__ == '__main__':
                     finetune_cost.append(finetune_func(b))
                 print('Finetune cost: ','(epoch ', epoch,'): ',np.mean(finetune_cost))
 
-                if epoch%25==0:
+                if epoch%10==0:
                     valid_cost = []
                     theano_v_ids = []
                     theano_v_pred_y = []
@@ -812,7 +819,7 @@ if __name__ == '__main__':
             test_out.append(cls)
             test_out_probs.append(probs[0])
 
-    print('\n Saving out probabilities (test)')
+    '''print('\n Saving out probabilities (test)')
     with open('deepnet_out_probs.csv', 'w',newline='') as f:
         import csv
         class_dist = [0,0,0]
@@ -840,7 +847,7 @@ if __name__ == '__main__':
             row = [id]
             row.extend(theano_v_pred_y[i])
             row.extend(theano_v_act_y[i])
-            writer.writerow(row)
+            writer.writerow(row)'''
 
     if save_features:
         all_tr_features = []
