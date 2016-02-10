@@ -235,7 +235,7 @@ class SDAEPretrainer(object):
 
         for b in range(n_test_batches):
             features, y, ids = ts_features_func(b)
-            
+
             temp = np.concatenate((np.reshape(ids,(ids.shape[0],1)),features),axis=1)
             all_ts_features.extend(temp.tolist())
 
@@ -269,15 +269,15 @@ if __name__ == '__main__':
 
     import collections
     dl_params_1 = collections.defaultdict()
-    dl_params_1['batch_size'] = 100
+    dl_params_1['batch_size'] = 10
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = 398
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [500,500,500]
-    dl_params_1['learning_rate'] = 0.75
-    dl_params_1['pre_epochs'] = 100
+    dl_params_1['hid_sizes'] = [500,500]
+    dl_params_1['learning_rate'] = 0.1
+    dl_params_1['pre_epochs'] = 75
     dl_params_1['fine_epochs'] = 1
-    dl_params_1['lam'] = 1e-5
+    dl_params_1['lam'] = 1e-8
     dl_params_1['act'] = 'relu'
 
     sdae_pre = SDAEPretrainer(dl_params_1)
@@ -319,7 +319,7 @@ if __name__ == '__main__':
 
 
     def logloss(probs, Y):
-        assert len(probs)==len(Y)
+        #assert len(probs)==len(Y)
         logloss = 0.0
         for i in range(len(Y)):
             tmp_y = [0.,0.,0.]
@@ -346,4 +346,4 @@ if __name__ == '__main__':
         avg_result = np.add(avg_result,np.asarray(result))
 
     print("Avg logloss: ",logloss(avg_result,th_v_slice[2].eval()))
-    print("Weighted avg logloss: ",logloss(avg_result,th_v_slice[2].eval()))
+    print("Weighted avg logloss: ",logloss(weigh_avg_result,th_v_slice[2].eval()))
