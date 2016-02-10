@@ -262,7 +262,10 @@ class SDAEPretrainer(object):
         return ts_ids,test_out_probs
 
 from OnlyXGBoost import MyXGBClassifier
+from sklearn.ensemble import ExtraTreesClassifier
 if __name__ == '__main__':
+
+    select_features = True
 
     th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_train.csv', 'features_test.csv',None)
     th_tr_slice,th_v_slice = tensor_divide_test_valid((th_train[0],th_train[1],th_train[2]))
@@ -273,14 +276,16 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = 398
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [500,500]
+    dl_params_1['hid_sizes'] = [1000,1000,500]
     dl_params_1['learning_rate'] = 0.1
-    dl_params_1['pre_epochs'] = 75
+    dl_params_1['pre_epochs'] = 40
     dl_params_1['fine_epochs'] = 1
-    dl_params_1['lam'] = 1e-8
+    dl_params_1['lam'] = 1e-5
     dl_params_1['act'] = 'relu'
-
     sdae_pre = SDAEPretrainer(dl_params_1)
+
+    feature_importance_thresh = [0.8,0.8,1.0]
+    second_layer_classifiers = ['xgb','gbm']
 
     sdae_pre.pretrain(th_tr_slice,th_v_slice,th_test,None)
 
@@ -311,11 +316,35 @@ if __name__ == '__main__':
         v_slice_x_tmp = th_v_slice_x_tmp.get_value(borrow=True)
         v_slice_y_tmp = th_v_slice_y_tmp.eval()
 
-        print('XGBClassifier for ', h_i, ' layer ...')
-        xgbClassifiers.append(MyXGBClassifier(n_rounds=50,eta=0.2,max_depth=10,subsample=0.9,colsample_bytree=0.9))
-        xgbClassifiers[-1].fit(tr_slice_x_tmp,tr_slice_y_tmp)
-        xgbProbas.append(xgbClassifiers[-1].predict_proba(tr_slice_x_tmp))
-        xgbLogLosses.append(xgbClassifiers[-1].logloss(v_slice_x_tmp,v_slice_y_tmp))
+        if 'xgb' in second_layer_classifiers:
+            print('XGBClassifier for ', h_i, ' layer ...')
+            xgbClassifiers.append(MyXGBClassifier(n_rounds=75,eta=0.2,max_depth=10,subsample=0.9,colsample_bytree=0.9))
+        if select_features:
+            forest = ExtraTreesClassifier(n_estimators=1000, max_features="auto", n_jobs=5, random_state=0)
+            forest.fit(tr_slice_x_tmp, tr_slice_y_tmp)
+            tr_feature_imp = forest.feature_importances_
+
+            tr_new_features_tmp,v_new_features_tmp = None,None
+            for tmp_idx in np.argsort(tr_feature_imp).tolist()[int(tr_slice_x_tmp.shape[1]*feature_importance_thresh[h_i]):]:
+                tr_tmp = np.asarray(tr_slice_x_tmp[:,tmp_idx]).reshape(-1,1)
+                v_tmp = np.asarray(v_slice_x_tmp[:,tmp_idx]).reshape(-1,1)
+                if tr_new_features_tmp is not None:
+                    tr_new_features_tmp = np.append(tr_new_features_tmp,tr_tmp, axis=1)
+                    v_new_features_tmp = np.append(v_new_features_tmp.tolist(),v_tmp, axis=1)
+                else:
+                    tr_new_features_tmp = tr_tmp
+                    v_new_features_tmp = v_tmp
+
+            print('Selected features size: ',tr_new_features_tmp.shape)
+            if 'xgb' in second_layer_classifiers:
+                xgbClassifiers[-1].fit(tr_new_features_tmp, tr_slice_y_tmp)
+                xgbProbas.append(xgbClassifiers[-1].predict_proba(v_slice_x_tmp))
+                xgbLogLosses.append(xgbClassifiers[-1].logloss(v_new_features_tmp,v_slice_y_tmp))
+        else:
+            if 'xgb' in second_layer_classifiers:
+                xgbClassifiers[-1].fit(tr_slice_x_tmp,tr_slice_y_tmp)
+                xgbProbas.append(xgbClassifiers[-1].predict_proba(v_slice_x_tmp))
+                xgbLogLosses.append(xgbClassifiers[-1].logloss(v_slice_x_tmp,v_slice_y_tmp))
 
 
     def logloss(probs, Y):
@@ -335,15 +364,15 @@ if __name__ == '__main__':
 
     print(xgbLogLosses)
 
-    avg_result = np.zeros((th_tr_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
-    weigh_avg_result = np.zeros((th_tr_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+    avg_result = np.zeros((th_v_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+    weigh_avg_result = np.zeros((th_v_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
     for r_i,result in enumerate(xgbProbas):
         if r_i == np.argmin(xgbLogLosses):
             weigh_avg_result = np.add(weigh_avg_result,0.3*np.asarray(result))
         else:
-            weigh_avg_result = np.add(weigh_avg_result,((1-0.3)/len(xgbProbas))*np.asarray(result))
+            weigh_avg_result = np.add(weigh_avg_result,((1-0.3)/(len(xgbProbas)-1))*np.asarray(result))
 
         avg_result = np.add(avg_result,np.asarray(result))
 
-    print("Avg logloss: ",logloss(avg_result,th_v_slice[2].eval()))
+    print("Avg logloss: ",logloss(avg_result/len(xgbProbas),th_v_slice[2].eval()))
     print("Weighted avg logloss: ",logloss(weigh_avg_result,th_v_slice[2].eval()))

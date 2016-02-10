@@ -143,11 +143,12 @@ class MyXGBClassifier(object):
         self.params.update({'eval_metric':'mlogloss'})
         self.clf = None
         self.n_rounds = n_rounds
+        self.dtrain = None
 
     def fit(self, X, Y):
         num_boost_round = self.n_rounds
-        dtrain = xgb.DMatrix(X, label=Y)
-        self.clf = xgb.train(params=self.params, dtrain=dtrain, num_boost_round=num_boost_round)
+        self.dtrain = xgb.DMatrix(X, label=Y)
+        self.clf = xgb.train(params=self.params, dtrain=self.dtrain, num_boost_round=num_boost_round)
 
     def predict(self, X):
         Y = self.clf.predict_proba(X)
