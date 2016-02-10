@@ -353,8 +353,8 @@ def select_features(train_file,test_file,remove_header):
 # v for vector
 # n for nomarlize
 
-include = {'id':'s','loc':'v','feat':'v','sev':'v','eve':'v','res':'v'}
-file_name = 'features_non_norm'
+include = {'id':'s','loc':'v','feat':'vn','sev':'v','eve':'v','res':'v'}
+file_name = 'features'
 
 
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)

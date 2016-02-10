@@ -296,7 +296,7 @@ class XGBoost(object):
         logloss = -logloss/len(ids)
         return logloss
 
-    def train(self,tr_all,v_all,weights=None):
+    def train(self,tr_all,v_all,weights=None,eps=3):
 
         tr_ids,tr_x,tr_y = tr_all
         v_ids,v_x,v_y = v_all
@@ -313,7 +313,7 @@ class XGBoost(object):
 
         print('\nTraining ...')
 
-        epochs = 10
+        epochs = eps
         for ep in range(epochs):
             self.bst = xgb.train(self.param, xg_train, 10, evallist)
 
@@ -334,8 +334,8 @@ class XGBoost(object):
             temp[v_y[i]] = 1.
             y_mat.append(temp)
 
-        logloss = self.logloss(v_ids, final_pred_valid, v_y)
-        print('Valid: ',logloss)
+        #logloss = self.logloss(v_ids, final_pred_valid, v_y)
+        #print('Valid: ',logloss)
         pred_y = [np.argmax(arr) for arr in pred_train]
 
         return tr_ids,pred_y,tr_y
@@ -424,6 +424,22 @@ class XGBoost(object):
         print('Best depth: ',best_depth, ' Round: ',best_depth_round)
         print('Best reg (alpha lambda): ',best_reg,' Round: ',best_reg_round)
 
+    def logloss(self,X, Y):
+        xg_X = xgb.DMatrix(np.asarray(X,dtype=np.float32), label=np.asarray(Y,dtype=np.float32))
+        probs = self.bst.predict(xg_X)
+        logloss = 0.0
+        for i in range(len(Y)):
+            tmp_y = [0.,0.,0.]
+            tmp_y[Y[i]]=1.
+            v_probs = probs[i]
+            if any(v_probs)==1.:
+                v_probs = np.asarray([np.max([np.min([p,1-1e-15]),1e-15]) for p in v_probs])
+
+            logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(v_probs)))
+        logloss = -logloss/len(Y)
+        print(logloss)
+        return logloss
+
     def test(self,test_x):
         test_dummy_y = [0 for _ in range(len(test_x))]
         xg_test = xgb.DMatrix( np.asarray(test_x,dtype=np.float32), label=np.asarray(test_dummy_y,dtype=np.float32))
@@ -477,23 +493,26 @@ if __name__ == '__main__':
     param['n_estimators'] = 100
 
     xgboost = XGBoost(param)
-    xgboost2 = XGBoost(param2)
+    xgboost2 = XGBoost(param)
 
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    pred_test = xgboost.test(test_x)
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,3)
+    pred_test = xgboost.logloss(v_x,v_y)
+    xgboost2.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
+
+    pred_test = xgboost.logloss(v_x,v_y)
+    pred_test2 = xgboost2.logloss(v_x,v_y)
+
+    #xgboost2.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    #pred_test = xgboost2.test_clf(test_x)
 
 
-    xgboost2.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    pred_test = xgboost2.test_clf(test_x)
-
-
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    pred_test = xgboost.test(test_x)
+    #xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
+    #pred_test = xgboost.test(test_x)
 
 
 
-    print('\n Saving out probabilities (test)')
+    '''print('\n Saving out probabilities (test)')
     import csv
     with open('xgboost_output.csv', 'w',newline='') as f:
         class_dist = [0,0,0]
@@ -503,5 +522,5 @@ if __name__ == '__main__':
             probs = pred_test[int(c_id)]
             row = [id,probs[0], probs[1], probs[2]]
             class_dist[np.argmax(probs)] += 1
-            writer.writerow(row)
+            writer.writerow(row)'''
 

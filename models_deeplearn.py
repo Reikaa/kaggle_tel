@@ -446,29 +446,6 @@ class SDAE(object):
 
         return test
 
-    def test_decode(self,x,y):
-        idx = T.iscalar('idx')
-        out_test_fn = function(inputs=[idx],outputs=[self.layers[0].in_hat,self.layers[0].in_hat.shape],
-                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]}
-                               )
-        def test(batch_id):
-            print(out_test_fn(batch_id)[0])
-            print(out_test_fn(batch_id)[1])
-        return test
-
-    def test_cost(self,x,y):
-        idx = T.iscalar('idx')
-
-        cost = T.nnet.binary_crossentropy(T.nnet.sigmoid(T.dot(self.layers[0].out,self.layers[0].W.T)+self.layers[0].b_prime),self.sym_x)
-        out_test_fn = function(inputs=[idx],outputs=cost,
-                               givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]}
-                               )
-        def test(batch_id):
-            print(out_test_fn(batch_id))
-
-        return test
-
-
     def pre_train(self,x):
         idx = T.iscalar('idx')
         greedy_pretrain_funcs = []
@@ -660,8 +637,10 @@ class SDAE(object):
         b_size = self.batch_size
         input_ids = T.iscalar('input_ids')
 
-        if isTest:
-            b_size = 1
+        lyr_out = self.chained_out(self.layers,self.sym_x,layer_idx+1,'pretrain')
+
+        th_test_fn = function(inputs=[idx],outputs=lyr_out,updates=None,
+                              givens={self.sym_x: x[idx * b_size:(idx+1) * b_size]})
 
         if not isTest:
             theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y,input_ids],updates=None,

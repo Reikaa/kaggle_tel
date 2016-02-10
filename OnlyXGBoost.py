@@ -165,6 +165,9 @@ class MyXGBClassifier(object):
         self.params.update(params)
         return self
 
+    def logloss(self, X, Y):
+        return logloss(self,X,Y)
+
     def score(self, X, Y):
         return 1 / logloss(self,X, Y)
 
