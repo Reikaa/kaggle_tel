@@ -234,10 +234,11 @@ class SDAEPretrainer(object):
         print('Size train+valid features: ',len(all_tr_features),' x ',len(all_tr_features[0]))
 
         for b in range(n_test_batches):
-            features, y, id = ts_features_func(b)
-            row = [id[0]]
-            row.extend(features[0])
-            all_ts_features.append(row)
+            features, y, ids = ts_features_func(b)
+            
+            temp = np.concatenate((np.reshape(ids,(ids.shape[0],1)),features),axis=1)
+            all_ts_features.extend(temp.tolist())
+
         print('Size test features: ',len(all_ts_features),' x ',len(all_ts_features[0]))
 
         return (all_tr_features,all_tr_outputs),all_ts_features
