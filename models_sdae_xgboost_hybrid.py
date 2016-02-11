@@ -375,8 +375,8 @@ if __name__ == '__main__':
               '\n############################################\n')
 
     select_features = False # select features using extratrees (based on importance)
-    train_with_valid = False # this specify if we want to finetune with the validation data
-    persist_features = True
+    train_with_valid = True # this specify if we want to finetune with the validation data
+    persist_features = False
     tr_v_rounds = 10
     print('Select features with Extratrees: ',select_features)
     print('Train with validation set: ',train_with_valid)
@@ -509,7 +509,7 @@ if __name__ == '__main__':
 
                 tr_y_save_features = np.append(tr_slice_y_tmp,v_slice_y_tmp,axis=0).reshape(-1,1)
 
-                save_features('features_dl_'+str(h_i)+'train.csv',tr_x_save_features,tr_y_save_features)
+                save_features('features_dl_'+str(h_i)+'_train.csv',tr_x_save_features,tr_y_save_features)
 
                 # saving test features
                 ts_x_save_features = np.append(ts_ids_tmp.reshape(-1,1),ts_x_tmp,axis=1)

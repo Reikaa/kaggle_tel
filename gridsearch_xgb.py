@@ -137,7 +137,7 @@ class MyXGBClassifier(object):
     def __init__(self, n_rounds=100, **params):
         self.params = params
         self.params.update({'booster':'gbtree'})
-        self.params.update({'silent':0})
+        self.params.update({'silent':1})
         self.params.update({'objective': 'multi:softprob'})
         self.params.update({'num_class': 3})
         self.params.update({'eval_metric':'mlogloss'})
@@ -149,7 +149,7 @@ class MyXGBClassifier(object):
         num_boost_round = self.n_rounds
         self.dtrain = xgb.DMatrix(X, label=Y)
         # don't use iterative train if using early_stop
-        self.clf = xgb.train(params=self.params, dtrain=self.dtrain, num_boost_round=num_boost_round, early_stopping_rounds=5)
+        self.clf = xgb.train(params=self.params, dtrain=self.dtrain, num_boost_round=num_boost_round)
 
     def predict(self, X):
         Y = self.clf.predict_proba(X)
@@ -236,7 +236,7 @@ if __name__ == '__main__':
             #'max_delta_step': [0]
         }
 
-        clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70,isOriginal)
+        clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70)
 
 
 
