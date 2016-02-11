@@ -363,12 +363,10 @@ class LogisticRegression(object):
 
 class SDAE(object):
 
-    def __init__(self,in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act,iterations):
+    def __init__(self,in_size,out_size,hid_sizes,batch_size,learning_rate,lam,act,iterations,denoising=False,corr_level=None):
         self.in_size = in_size
         self.out_size = out_size
         self.layer_sizes = hid_sizes
-        self.denoising = False
-        self.corruption_levels = [0.05,0.05,0.05,0.05]
         self.layers = []
         self.sym_x = T.dmatrix('x')
         self.sym_y = T.ivector('y')
@@ -386,6 +384,11 @@ class SDAE(object):
         self.disc_cost = None
         self.neg_log = None
         self.rng = T.shared_randomstreams.RandomStreams(0)
+        self.denoising = denoising
+        self.corruption_level = corr_level
+        if denoising and corr_level is None:
+            self.corruption_level = 0.05
+
 
     def process(self):
 
@@ -398,6 +401,9 @@ class SDAE(object):
         # pre training
         for i,layer in enumerate(self.layers):
             layer_x = self.chained_out(self.layers,self.sym_x,i,'pretrain')
+            if self.denoising:
+                layer_x = self.noise_input(layer_x)
+
             layer_out = layer.encode(layer_x,'pretrain')
             layer_x_hat = layer.decode(layer_out,'pretrain')
             if self.act == 'sigmoid':
@@ -418,6 +424,8 @@ class SDAE(object):
         # fine-tuning
         gen_out = self.sym_x
         for i,layer in enumerate(self.layers):
+            if self.denoising:
+                gen_out = self.noise_input(gen_out)
             gen_out = layer.encode(gen_out,'finetune')
 
         gen_out_hat = gen_out
@@ -432,6 +440,12 @@ class SDAE(object):
                            + T.mean(self.layers[i].b**2) + T.mean(self.layers[i].b_prime**2)
         self.disc_cost = self.softmax.logloss + (self.lam * weight_sums)
         self.neg_log = self.softmax.neg_log  + (self.lam * weight_sums)
+
+    # noise a given input
+    def noise_input(self,x):
+        noise = self.rng.binomial(size=(x.shape[0], x.shape[1]), n=1,  p=(1 - self.corruption_level), dtype=config.floatX)
+        x_tilde = x + noise*0.01
+        return x_tilde
 
     #I is the index of the layer you want the out put of (index)
     def chained_out(self,layers,x,I,train_type):
@@ -505,22 +519,6 @@ class SDAE(object):
             weight_batch = T.dvector('weights')
 
             weigh_logloss = T.sum(weight_batch*T.nnet.categorical_crossentropy(self.softmax.p_y_given_x,self.softmax.y_mat_update))
-
-            '''
-               We don't really need any of this stuff afa I understood
-               This stuff comes from the mathematical explanation of the SAMME algo (it's included)
-               This is just proof stuff .
-
-            err_m = T.sum(weight_batch*T.neq(self.softmax.y_pred,self.sym_y))*1.0/T.sum(weight_batch)
-            beta = ((self.out_size-1)**2/self.out_size) * (T.log((1.01-err_m)/err_m) + T.log(self.out_size -1 ))
-
-            y_tmp = T.ones((self.sym_y.shape[0],3),dtype=config.floatX)*(-1/(1-self.out_size))
-            y_symmetric = T.set_subtensor(y_tmp[T.arange(self.sym_y.shape[0]),self.sym_y], 1)
-
-            g_tmp = T.ones((self.sym_y.shape[0],3),dtype=config.floatX)*(-1/(1-self.out_size))
-            g_symmetric = T.set_subtensor(g_tmp[T.arange(self.sym_y.shape[0]),self.softmax.y_pred], 1)
-
-            exp_loss = T.sum(weight_batch * T.exp(-(1/self.out_size)*beta*T.sum(y_symmetric*g_symmetric)))'''
 
             theano_output = self.softmax.error
 
@@ -658,16 +656,13 @@ class SDAE(object):
 
         lyr_out = self.chained_out(self.layers,self.sym_x,layer_idx+1,'pretrain')
 
-        th_test_fn = function(inputs=[idx],outputs=lyr_out,updates=None,
-                              givens={self.sym_x: x[idx * b_size:(idx+1) * b_size]})
-
         if not isTest:
-            theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y,input_ids],updates=None,
+            theano_get_features_fn = function(inputs=[idx],outputs=[lyr_out,self.sym_y,input_ids],updates=None,
                                givens={self.sym_x: x[idx * b_size:(idx+1) * b_size],
                                        self.sym_y: y[idx * b_size:(idx+1) *b_size],
                                        input_ids: ids[idx * b_size:(idx+1) *b_size]})
         if isTest:
-            theano_get_features_fn = function(inputs=[idx],outputs=[self.layers[layer_idx].out,self.sym_y,input_ids],updates=None,
+            theano_get_features_fn = function(inputs=[idx],outputs=[lyr_out,self.sym_y,input_ids],updates=None,
                                givens={self.sym_x: x[idx * b_size:(idx+1) * b_size],
                                        self.sym_y: 0,
                                        input_ids: ids[idx * b_size:(idx+1) *b_size]})

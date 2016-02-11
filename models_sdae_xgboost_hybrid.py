@@ -235,7 +235,9 @@ class SDAEPretrainer(object):
         self.finetune_epochs = param['fine_epochs']
         self.lam = param['lam']
         self.act = param['act']
-        self.sdae = SDAE(self.in_size,self.out_size,self.hid_sizes,self.batch_size,self.learning_rate,self.lam,self.act,self.iterations)
+        self.denoise = param['denoise']
+        self.corr_level = param['corr_level']
+        self.sdae = SDAE(self.in_size,self.out_size,self.hid_sizes,self.batch_size,self.learning_rate,self.lam,self.act,self.iterations,self.denoise,self.corr_level)
         self.sdae.process()
 
         self.theano_tr_ids, self.tr_pred, self.tr_act = [],[],[]
@@ -375,7 +377,7 @@ if __name__ == '__main__':
               '\n############################################\n')
 
     select_features = False # select features using extratrees (based on importance)
-    train_with_valid = True # this specify if we want to finetune with the validation data
+    train_with_valid = False # this specify if we want to finetune with the validation data
     persist_features = False
     tr_v_rounds = 10
     print('Select features with Extratrees: ',select_features)
@@ -392,13 +394,14 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = 398
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [500,500,500,500]
+    dl_params_1['hid_sizes'] = [500,500,500]
     dl_params_1['learning_rate'] = 0.1
     dl_params_1['pre_epochs'] = 15
     dl_params_1['fine_epochs'] = 1
     dl_params_1['lam'] = 1e-8
     dl_params_1['act'] = 'relu'
-
+    dl_params_1['denoise'] = True
+    dl_params_1['corr_level'] = 0.2
     if test_function:
         dl_params_1['pre_epochs'] = 2
         num_rounds = 10
