@@ -383,7 +383,7 @@ if __name__ == '__main__':
     print('Select features with Extratrees: ',select_features)
     print('Train with validation set: ',train_with_valid)
 
-    th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_train.csv', 'features_test.csv',None)
+    th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_train.csv', 'features_test.csv','loc')
     th_tr_slice,th_v_slice = tensor_divide_test_valid((th_train[0],th_train[1],th_train[2]))
 
     ts_ids,ts_x = th_test[0].eval(),th_test[1].get_value(borrow=True)
@@ -392,15 +392,15 @@ if __name__ == '__main__':
     dl_params_1 = collections.defaultdict()
     dl_params_1['batch_size'] = 10
     dl_params_1['iterations'] = 1
-    dl_params_1['in_size'] = 398
+    dl_params_1['in_size'] = th_train[1].get_value(borrow=True).shape[1]
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [500,500,500]
+    dl_params_1['hid_sizes'] = [100,100,100]
     dl_params_1['learning_rate'] = 0.1
     dl_params_1['pre_epochs'] = 15
     dl_params_1['fine_epochs'] = 1
     dl_params_1['lam'] = 1e-8
     dl_params_1['act'] = 'relu'
-    dl_params_1['denoise'] = True
+    dl_params_1['denoise'] = False
     dl_params_1['corr_level'] = 0.2
     if test_function:
         dl_params_1['pre_epochs'] = 2
