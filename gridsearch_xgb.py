@@ -198,10 +198,7 @@ def run_grid_search(params,X,Y,n_rounds,get_original=False):
 
     clf = MyXGBClassifier(n_rounds=n_rounds,eta=0.2,max_depth=10,subsample=0.9,colsample_bytree=0.9)
 
-    if get_original:
-        return clf
-    else:
-        gridsearch = GridSearchCV(clf, params, scoring=scorer_logloss, n_jobs=10, cv=3, refit=True)
+    gridsearch = GridSearchCV(clf, params, scoring=scorer_logloss, n_jobs=10, cv=3, refit=True)
 
     print('Fitting (Grid Search) ...')
     gridsearch.fit(X,Y)
@@ -221,10 +218,10 @@ def report(grid_scores, n_top=3):
 
 if __name__ == '__main__':
 
-    drop_cols = [None]
+    f_names = ['features','features_dl_1','features_dl_2','features_dl_3']
 
-    for d in drop_cols:
-        tr_data, test_data, correct_ids = load_teslstra_data_v3('features_non_norm_train.csv','features_non_norm_test.csv',d)
+    for f in f_names:
+        tr_data, test_data, correct_ids = load_teslstra_data_v3(f+'_train.csv',f+'_test.csv',None)
         tr_ids,tr_x,tr_y = tr_data
         ts_ids,ts_x = test_data
         print('Train: ', tr_x.shape)
@@ -239,39 +236,8 @@ if __name__ == '__main__':
             #'max_delta_step': [0]
         }
 
-        isOriginal = False
         clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70,isOriginal)
 
-        '''tmp_params = {
-            'max_depth': 10,
-            'subsample': 0.9,
-            'eta': 0.1
-        }
-
-        tmp_clf = MyXGBClassifier(100,max_depth=10,subsample=0.9,eta=0.1)
-        tmp_clf.fit(tr_x.as_matrix(),tr_y.as_matrix())
-        probs = tmp_clf.predict_proba(tr_x)'''
-
-        if isOriginal:
-            train_data,valid_data = divide_test_valid((tr_ids.as_matrix().flatten(),tr_x.as_matrix(),tr_y.as_matrix()))
-            tr2_ids,tr2_x,tr2_y = train_data
-            v_ids,v_x,v_y  = valid_data
-
-            clf.fit(tr2_x,tr2_y)
-            print('Testing ...')
-            print('Valid loss: ', logloss(clf,v_x,v_y))
-            test_probs = clf.predict_proba(ts_x.as_matrix())
-            print('\n Saving out probabilities (test)')
-            import csv
-            with open('only_xgboost_output.csv', 'w',newline='') as f:
-                class_dist = [0,0,0]
-                writer = csv.writer(f)
-                for i,id in enumerate(correct_ids):
-                    ts_id_list = ts_ids.as_matrix().flatten().tolist()
-                    c_id = ts_id_list.index(int(id))
-                    probs = test_probs[int(c_id)]
-                    row = [id,probs[0], probs[1], probs[2]]
-                    writer.writerow(row)
 
 
 #Mean validation score: 1.815 (std: 0.021)
