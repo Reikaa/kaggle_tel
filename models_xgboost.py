@@ -299,34 +299,44 @@ class XGBoost(object):
     def train(self,tr_all,v_all,weights=None,eps=3):
 
         tr_ids,tr_x,tr_y = tr_all
-        v_ids,v_x,v_y = v_all
+        if v_all is not None:
+            v_ids,v_x,v_y = v_all
 
         num_round = self.param['num_rounds']
         if weights is not None:
-            xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32),weight=np.asarray(weights)/np.max(weights))
+            xg_train = xgb.DMatrix(np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32),weight=np.asarray(weights)/np.max(weights))
         else:
-            xg_train = xgb.DMatrix( np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
-        xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
-
-        #eval list is used to keep track of performance
-        evallist = [(xg_train,'train'), (xg_valid, 'eval')]
+            xg_train = xgb.DMatrix(np.asarray(tr_x,dtype=np.float32), label=np.asarray(tr_y,dtype=np.float32))
 
         print('\nTraining ...')
+        if v_all is not None:
+            xg_valid = xgb.DMatrix( np.asarray(v_x,dtype=np.float32), label=np.asarray(v_y,dtype=np.float32))
+            #eval list is used to keep track of performance
+            evallist = [(xg_train,'train'), (xg_valid, 'eval')]
 
-        epochs = eps
-        for ep in range(epochs):
-            self.bst = xgb.train(self.param, xg_train, 10, evallist)
+            epochs = eps
+            for ep in range(epochs):
+                self.bst = xgb.train(self.param, xg_train, 100, evallist,early_stopping_rounds=5)
 
-            #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
-            pred_train = self.bst.predict(xg_train,output_margin=True)
-            # get prediction
-            pred_valid = self.bst.predict(xg_valid,output_margin=True)
+                #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
+                pred_train = self.bst.predict(xg_train,output_margin=True)
+                # get prediction
+                pred_valid = self.bst.predict(xg_valid,output_margin=True)
 
-            xg_valid.set_base_margin(pred_valid.flatten())
-            xg_train.set_base_margin(pred_train.flatten())
+                xg_valid.set_base_margin(pred_valid.flatten())
+                xg_train.set_base_margin(pred_train.flatten())
 
+        else:
+            for idx in range(10):
+                self.bst.update(xg_train, idx)
+                pred_train = self.bst.predict(xg_train)
+                #xg_train.set_base_margin(pred_train.flatten())
 
-        final_pred_valid = self.bst.predict(xg_valid)
+                v_ids = tr_ids
+                v_x = tr_x
+                v_y = tr_y
+                #final_pred_valid = self.bst.predict(xg_valid)
+                self.logloss(v_x, v_y)
 
         y_mat = []
         for i in range(len(v_ids)):
@@ -334,8 +344,6 @@ class XGBoost(object):
             temp[v_y[i]] = 1.
             y_mat.append(temp)
 
-        #logloss = self.logloss(v_ids, final_pred_valid, v_y)
-        #print('Valid: ',logloss)
         pred_y = [np.argmax(arr) for arr in pred_train]
 
         return tr_ids,pred_y,tr_y
@@ -427,6 +435,8 @@ class XGBoost(object):
     def logloss(self,X, Y):
         xg_X = xgb.DMatrix(np.asarray(X,dtype=np.float32), label=np.asarray(Y,dtype=np.float32))
         probs = self.bst.predict(xg_X)
+
+
         logloss = 0.0
         for i in range(len(Y)):
             tmp_y = [0.,0.,0.]
@@ -493,15 +503,16 @@ if __name__ == '__main__':
     param['n_estimators'] = 100
 
     xgboost = XGBoost(param)
-    xgboost2 = XGBoost(param)
+    #xgboost2 = XGBoost(param)
 
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,3)
+    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
     pred_test = xgboost.logloss(v_x,v_y)
-    xgboost2.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
+    #xgboost2.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
 
+    xgboost.train((v_ids,v_x,v_y),None,None,1)
     pred_test = xgboost.logloss(v_x,v_y)
-    pred_test2 = xgboost2.logloss(v_x,v_y)
+    #pred_test2 = xgboost2.logloss(v_x,v_y)
 
     #xgboost2.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
     #pred_test = xgboost2.test_clf(test_x)

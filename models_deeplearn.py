@@ -378,6 +378,7 @@ class SDAE(object):
         self.batch_size = batch_size
         self.iterations = iterations
         self.pre_costs = []
+        self.full_pre_cost = None
         self.fine_tune_cost = None
         self.p_y_given_x = None
         self.y_pred = None
@@ -402,11 +403,14 @@ class SDAE(object):
             if self.act == 'sigmoid':
                 self.pre_costs.append(
                         T.mean(T.nnet.binary_crossentropy(layer_x_hat,layer_x))
-                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0))
+                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+                )
             elif self.act == 'relu':
                 self.pre_costs.append(
                         T.mean(T.sqrt(T.sum((layer_x - layer_x_hat)**2,axis=0)))
+                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0)
                 )
+
 
         soft_in = self.chained_out(self.layers,self.sym_x,len(self.layers),'finetune')
         self.softmax.process(soft_in,self.sym_y)
@@ -420,6 +424,7 @@ class SDAE(object):
         for layer in reversed(self.layers):
             gen_out_hat = layer.decode(gen_out_hat,'finetune')
 
+        self.full_pre_cost = T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x))
         #self.disc_cost = self.softmax.cost + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
         weight_sums = 0.0
         for i in range(len(self.layer_sizes)):
@@ -463,6 +468,20 @@ class SDAE(object):
             return costs
 
         return train
+
+    def full_pretrain(self,x):
+        idx = T.iscalar('idx')
+        params = []
+        for layer in self.layers:
+                params.extend([layer.W,layer.b])
+        full_pre_updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(self.full_pre_cost,wrt=layer.params))]
+        theano_full_pretrain_func = function(inputs=[idx],outputs=self.full_pre_cost,updates=full_pre_updates,
+                                             givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
+
+        def full_pretrain_fn(batch_id):
+            return theano_full_pretrain_func(batch_id)
+
+        return full_pretrain_fn
 
     def fine_tune(self,x,y,weights = None):
         idx = T.iscalar('idx')

@@ -154,6 +154,72 @@ def load_tensor_teslstra_data_v3(train_file,test_file,drop_col=None):
     return get_shared_data((tr_ids.as_matrix(),tr_x.as_matrix(),tr_y.as_matrix())), \
            get_shared_data((test_ids.as_matrix(),test_x.as_matrix())), correct_order_test_ids
 
+import xgboost as xgb
+class MyXGBClassifier(object):
+
+    def __init__(self, n_rounds=100, **params):
+        self.params = params
+        self.params.update({'booster':'gbtree'})
+        self.params.update({'silent':1})
+        self.params.update({'objective': 'multi:softprob'})
+        self.params.update({'num_class': 3})
+        self.params.update({'eval_metric':'mlogloss'})
+        self.clf = None
+        self.n_rounds = n_rounds
+        self.dtrain = None
+
+    def fit(self, X, Y,V_X,V_Y):
+        num_boost_round = self.n_rounds
+        self.dtrain = xgb.DMatrix(X, label=Y)
+        dvalid = xgb.DMatrix(V_X, label=V_Y)
+        evallist = [(self.dtrain,'train'), (dvalid, 'eval')]
+
+        # don't use iterative train if using early_stop
+        self.clf = xgb.train(self.params, self.dtrain, num_boost_round, evallist, early_stopping_rounds=5)
+
+    def fit_with_valid(self,V_X,V_Y,rounds):
+        dvalid = xgb.DMatrix(V_X, label=V_Y)
+        for idx in range(rounds):
+            self.clf.update(dvalid,idx)
+
+    def predict(self, X):
+        Y = self.clf.predict_proba(X)
+        y = np.argmax(Y, axis=1)
+        return np.array(y)
+
+    def predict_proba(self, X):
+        dtest = xgb.DMatrix(X)
+        return self.clf.predict(dtest)
+
+    def get_params(self, deep=True):
+        return self.params
+
+    def set_params(self, **params):
+        self.params.update(params)
+        return self
+
+    def logloss(self, X, Y):
+        return logloss(self,X,Y)
+
+    def score(self, X, Y):
+        return 1 / logloss(self,X, Y)
+
+def logloss(est, X, Y):
+
+    probs = est.predict_proba(X)
+    logloss = 0.0
+    for i in range(len(Y)):
+        tmp_y = [0.,0.,0.]
+        tmp_y[Y[i]]=1.
+        v_probs = probs[i]
+        if any(v_probs)==1.:
+            v_probs = np.asarray([np.max([np.min([p,1-1e-15]),1e-15]) for p in v_probs])
+
+        logloss += np.sum(np.asarray(tmp_y)*np.log(np.asarray(v_probs)))
+    logloss = -logloss/len(Y)
+
+    return logloss
+
 class SDAEPretrainer(object):
 
     def __init__(self,param):
@@ -189,11 +255,33 @@ class SDAEPretrainer(object):
 
         pretrain_func = self.sdae.pre_train(all_theano_x)
 
-        for epoch in range(self.pre_epochs):
+        for epoch in range(self.pre_epochs//2):
             pre_train_cost = []
             for b in range(n_pretrain_batches):
                 pre_train_cost.append(pretrain_func(b))
-            print('Pretrain cost ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
+            print('Pretrain cost (Layer-wise) ','(epoch ', epoch,'): ',np.mean(pre_train_cost))
+
+    def full_pretrain(self,tr_all,v_all,ts_all,weights):
+
+        tr_ids,tr_x,tr_y = tr_all
+        v_ids,v_x,v_y = v_all
+        ts_ids,ts_x = ts_all
+
+        all_x = []
+        all_x.extend(tr_x.get_value())
+        all_x.extend(v_x.get_value())
+        all_x.extend(ts_x.get_value())
+        all_theano_x = shared(value=np.asarray(all_x,dtype=config.floatX),borrow=True)
+
+        n_pretrain_batches = ceil(all_theano_x.get_value(borrow=True).shape[0] / self.batch_size)
+
+        full_pretrain_func = self.sdae.full_pretrain(all_theano_x)
+
+        for epoch in range(self.pre_epochs):
+            full_pre_cost = []
+            for b in range(n_pretrain_batches):
+                full_pre_cost.append(full_pretrain_func(b))
+            print('Pretrain cost (Full) ','(epoch ', epoch,'): ',np.mean(full_pre_cost))
 
 
     def get_features(self,tr_all,v_all,ts_all,layer_idx):
@@ -261,14 +349,20 @@ class SDAEPretrainer(object):
 
         return ts_ids,test_out_probs
 
-from OnlyXGBoost import MyXGBClassifier
+
 from sklearn.ensemble import ExtraTreesClassifier
 if __name__ == '__main__':
 
-    select_features = True
+    select_features = False
+    train_with_valid = False
+    tr_v_rounds = 10
+    print('Select features with Extratrees: ',select_features)
+    print('Train with validation set: ',train_with_valid)
 
     th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_train.csv', 'features_test.csv',None)
     th_tr_slice,th_v_slice = tensor_divide_test_valid((th_train[0],th_train[1],th_train[2]))
+
+    ts_ids,ts_x = th_test[0].eval(),th_test[1].get_value(borrow=True)
 
     import collections
     dl_params_1 = collections.defaultdict()
@@ -276,32 +370,39 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = 398
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [1000,1000,500]
+    dl_params_1['hid_sizes'] = [700,600,500,400]
     dl_params_1['learning_rate'] = 0.1
-    dl_params_1['pre_epochs'] = 40
+    dl_params_1['pre_epochs'] = 20
     dl_params_1['fine_epochs'] = 1
     dl_params_1['lam'] = 1e-5
     dl_params_1['act'] = 'relu'
     sdae_pre = SDAEPretrainer(dl_params_1)
 
-    feature_importance_thresh = [0.8,0.8,1.0]
+    fimp_cutoff_thresh = [0.2,0.1,0.0,0.0]
     second_layer_classifiers = ['xgb','gbm']
 
     sdae_pre.pretrain(th_tr_slice,th_v_slice,th_test,None)
+    sdae_pre.full_pretrain(th_tr_slice,th_v_slice,th_test,None)
 
+    xgbProbas = []
+    xgbTestProbas = []
     xgbClassifiers = []
     xgbClassifiers.append(MyXGBClassifier(n_rounds=50,eta=0.2,max_depth=10,subsample=0.9,colsample_bytree=0.9))
-    xgbClassifiers[-1].fit(th_tr_slice[1].get_value(borrow=True),th_tr_slice[2].eval())
+    xgbClassifiers[-1].fit(th_tr_slice[1].get_value(borrow=True),th_tr_slice[2].eval(),
+                           th_v_slice[1].get_value(borrow=True),th_v_slice[2].eval())
+    if train_with_valid:
+        xgbClassifiers[-1].fit_with_valid(th_v_slice[1].get_value(borrow=True),th_v_slice[2].eval(),tr_v_rounds)
 
     xgbLogLosses = []
     xgbLogLosses.append(xgbClassifiers[-1].logloss(th_v_slice[1].get_value(borrow=True),th_v_slice[2].eval()))
-
-    xgbProbas = []
+    xgbProbas.append(xgbClassifiers[-1].predict_proba(th_v_slice[1].get_value(borrow=True)))
+    xgbTestProbas.append(xgbClassifiers[-1].predict_proba(ts_x))
     for h_i in range(len(dl_params_1['hid_sizes'])):
         print('Getting features for ',h_i,' layer')
         (tr_feat,tr_out),ts_feat = sdae_pre.get_features(th_tr_slice,th_v_slice,th_test,h_i)
         tr_feat = np.asarray(tr_feat, dtype=config.floatX)
         tr_out = np.asarray(tr_out, dtype=config.floatX)
+        ts_feat = np.asarray(ts_feat, dtype=config.floatX)
 
         th_tr_feat = get_shared_data((tr_feat[:,0],tr_feat[:,1:],tr_out))
         tr_slice_tmp,v_slice_tmp = tensor_divide_test_valid(th_tr_feat)
@@ -324,26 +425,41 @@ if __name__ == '__main__':
             forest.fit(tr_slice_x_tmp, tr_slice_y_tmp)
             tr_feature_imp = forest.feature_importances_
 
-            tr_new_features_tmp,v_new_features_tmp = None,None
-            for tmp_idx in np.argsort(tr_feature_imp).tolist()[int(tr_slice_x_tmp.shape[1]*feature_importance_thresh[h_i]):]:
+            tr_new_features_tmp,v_new_features_tmp,ts_new_features_tmp = None,None,None
+            for tmp_idx in np.argsort(tr_feature_imp).tolist()[int(tr_slice_x_tmp.shape[1]*fimp_cutoff_thresh[h_i]):]:
                 tr_tmp = np.asarray(tr_slice_x_tmp[:,tmp_idx]).reshape(-1,1)
                 v_tmp = np.asarray(v_slice_x_tmp[:,tmp_idx]).reshape(-1,1)
+                ts_tmp = np.asarray(ts_feat[:,tmp_idx]).reshape(-1,1)
+
                 if tr_new_features_tmp is not None:
                     tr_new_features_tmp = np.append(tr_new_features_tmp,tr_tmp, axis=1)
                     v_new_features_tmp = np.append(v_new_features_tmp.tolist(),v_tmp, axis=1)
+                    ts_new_feature_tmp = np.append(ts_new_feature_tmp.tolist(),v_tmp, axis=1)
                 else:
                     tr_new_features_tmp = tr_tmp
                     v_new_features_tmp = v_tmp
+                    ts_new_feature_tmp = ts_tmp
 
             print('Selected features size: ',tr_new_features_tmp.shape)
             if 'xgb' in second_layer_classifiers:
-                xgbClassifiers[-1].fit(tr_new_features_tmp, tr_slice_y_tmp)
-                xgbProbas.append(xgbClassifiers[-1].predict_proba(v_slice_x_tmp))
+                xgbClassifiers[-1].fit(tr_new_features_tmp, tr_slice_y_tmp,
+                                       v_new_features_tmp,v_slice_y_tmp)
+                if train_with_valid:
+                    xgbClassifiers[-1].fit_with_valid(v_new_features_tmp,v_slice_y_tmp,tr_v_rounds)
+
+                xgbProbas.append(xgbClassifiers[-1].predict_proba(v_new_features_tmp))
+                xgbTestProbas.append(xgbClassifiers[-1].predict_proba(ts_new_feature_tmp))
                 xgbLogLosses.append(xgbClassifiers[-1].logloss(v_new_features_tmp,v_slice_y_tmp))
         else:
             if 'xgb' in second_layer_classifiers:
-                xgbClassifiers[-1].fit(tr_slice_x_tmp,tr_slice_y_tmp)
+                xgbClassifiers[-1].fit(tr_slice_x_tmp,tr_slice_y_tmp,
+                                       v_slice_x_tmp,v_slice_y_tmp)
+                if train_with_valid:
+                    xgbClassifiers[-1].fit_with_valid(th_v_slice[1].get_value(borrow=True),
+                                                      th_v_slice[2].eval(),tr_v_rounds)
+
                 xgbProbas.append(xgbClassifiers[-1].predict_proba(v_slice_x_tmp))
+                xgbTestProbas.append(xgbClassifiers[-1].predict_proba(ts_feat))
                 xgbLogLosses.append(xgbClassifiers[-1].logloss(v_slice_x_tmp,v_slice_y_tmp))
 
 
@@ -366,13 +482,32 @@ if __name__ == '__main__':
 
     avg_result = np.zeros((th_v_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
     weigh_avg_result = np.zeros((th_v_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+
+    avg_test_result = np.zeros((th_test[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+    weigh_avg_test_result = np.zeros((th_test[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+
     for r_i,result in enumerate(xgbProbas):
+        test_result = xgbTestProbas[r_i]
         if r_i == np.argmin(xgbLogLosses):
             weigh_avg_result = np.add(weigh_avg_result,0.3*np.asarray(result))
+            weigh_avg_test_result = np.add(weigh_avg_test_result, 0.3*np.asarry(test_result))
         else:
             weigh_avg_result = np.add(weigh_avg_result,((1-0.3)/(len(xgbProbas)-1))*np.asarray(result))
+            weigh_avg_test_result = np.add(weigh_avg_test_result,((1-0.3)/(len(xgbProbas)-1))*np.asarray(test_result))
 
         avg_result = np.add(avg_result,np.asarray(result))
+        avg_test_result = np.add(avg_test_result,np.asarray(test_result))
 
     print("Avg logloss: ",logloss(avg_result/len(xgbProbas),th_v_slice[2].eval()))
     print("Weighted avg logloss: ",logloss(weigh_avg_result,th_v_slice[2].eval()))
+
+    print('\n Saving out probabilities (test)')
+    import csv
+    with open('sdae_xgboost_output.csv', 'w',newline='') as f:
+        class_dist = [0,0,0]
+        writer = csv.writer(f)
+        for id in correct_ids:
+            c_id = ts_ids.index(id)
+            probs = weigh_avg_test_result[int(c_id),:]
+            row = [id,probs[0], probs[1], probs[2]]
+            writer.writerow(row)
