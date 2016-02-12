@@ -408,15 +408,14 @@ class SDAE(object):
             layer_x_hat = layer.decode(layer_out,'pretrain')
             if self.act == 'sigmoid':
                 self.pre_costs.append(
-                        T.mean(T.nnet.binary_crossentropy(layer_x_hat,layer_x))
-                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+                        T.sum(T.nnet.binary_crossentropy(layer_x_hat,layer_x))
                 )
             elif self.act == 'relu':
                 self.pre_costs.append(
-                        T.mean(T.sqrt(T.sum((layer_x - layer_x_hat)**2,axis=0)))
-                        + self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+                        T.sqrt(T.sum((layer_x - layer_x_hat)**2,axis=1)).dimshuffle(0,'x')
                 )
 
+            #+ self.lam*T.sum(T.sum(layer.W**2, axis=1),axis=0)
 
         soft_in = self.chained_out(self.layers,self.sym_x,len(self.layers),'finetune')
         self.softmax.process(soft_in,self.sym_y)
@@ -432,7 +431,8 @@ class SDAE(object):
         for layer in reversed(self.layers):
             gen_out_hat = layer.decode(gen_out_hat,'finetune')
 
-        self.full_pre_cost = T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x))
+        self.full_pre_cost = T.sum(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x))
+
         #self.disc_cost = self.softmax.cost + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
         weight_sums = 0.0
         for i in range(len(self.layer_sizes)):
@@ -465,15 +465,24 @@ class SDAE(object):
 
         return test
 
-    def pre_train(self,x):
+    def pre_train(self,x,weights=None):
         idx = T.iscalar('idx')
+        sym_weights = T.dmatrix('weights')
         greedy_pretrain_funcs = []
+
         for i,layer in enumerate(self.layers):
+            pre_cost_i = None
             print('compiling pretrain function for layer ',i)
-            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(self.pre_costs[i],wrt=layer.params))]
-            greedy_pretrain_funcs.append(function(inputs=[idx],outputs=self.pre_costs[i],updates=updates,
-                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]
-                                                        },on_unused_input='warn'))
+            if weights is not None:
+                pre_cost_i = T.mean(self.pre_costs[i]*sym_weights) +  (self.lam/len(self.layers))*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+            else:
+                pre_cost_i = T.mean(self.pre_costs[i]) +  (self.lam/len(self.layers))*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+
+            updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(pre_cost_i,wrt=layer.params))]
+            greedy_pretrain_funcs.append(function(inputs=[idx],outputs=pre_cost_i, updates=updates,
+                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                         sym_weights: weights[idx * self.batch_size:(idx+1) * self.batch_size]}
+                                                  ))
 
         def train(batch_id):
             costs = []
@@ -483,14 +492,32 @@ class SDAE(object):
 
         return train
 
-    def full_pretrain(self,x):
+    def full_pretrain(self,x,weights=None):
         idx = T.iscalar('idx')
+        sym_weights = T.dmatrix('weights')
+
         params = []
         for layer in self.layers:
                 params.extend([layer.W,layer.b])
-        full_pre_updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(self.full_pre_cost,wrt=layer.params))]
-        theano_full_pretrain_func = function(inputs=[idx],outputs=self.full_pre_cost,updates=full_pre_updates,
-                                             givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
+
+        weight_sums = 0.0
+        for i in range(len(self.layer_sizes)):
+            weight_sums += T.sum(T.sum(self.layers[i].W**2, axis=1),axis=0) \
+                           + T.sum(self.layers[i].b**2) + T.sum(self.layers[i].b_prime**2)
+
+        mean_full_precost = None
+        if weights is not None:
+            mean_full_precost = T.mean(self.full_pre_cost*sym_weights) + self.lam*weight_sums
+        else:
+            mean_full_precost = T.mean(self.full_pre_cost) + self.lam*weight_sums
+
+        test_full_precost_func = function(inputs=[idx],outputs=self.full_pre_cost,
+                                          givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
+
+        full_pre_updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(mean_full_precost, wrt=layer.params))]
+        theano_full_pretrain_func = function(inputs=[idx],outputs=mean_full_precost, updates=full_pre_updates,
+                                             givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                     sym_weights: weights[idx * self.batch_size:(idx+1) * self.batch_size]})
 
         def full_pretrain_fn(batch_id):
             return theano_full_pretrain_func(batch_id)

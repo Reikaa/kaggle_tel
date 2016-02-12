@@ -218,8 +218,9 @@ def report(grid_scores, n_top=3):
 
 if __name__ == '__main__':
 
-    f_names = ['features','features_dl_1','features_dl_2','features_dl_3']
-
+    f_names = ['features','features_dl_1','features_dl_2']
+    mean_test_logloss = []
+    run = 'crossvalidation' # gridsearch or crossvalidation
     for f in f_names:
         tr_data, test_data, correct_ids = load_teslstra_data_v3(f+'_train.csv',f+'_test.csv',None)
         tr_ids,tr_x,tr_y = tr_data
@@ -227,18 +228,39 @@ if __name__ == '__main__':
         print('Train: ', tr_x.shape)
         print('Test: ', ts_x.shape)
 
+        if run == 'gridsearch':
+            parameters = {
+                'eta':[0.1,0.15,0.2],
+                'max_depth': [5, 10, 20],
+                'lambda': [0.9, 0.99],
+                'alpha': [0.9,0.99]
+                #'max_delta_step': [0]
+            }
 
-        parameters = {
-            'eta':[0.1,0.15,0.2],
-            'max_depth': [5, 10, 20],
-            'lambda': [0.9, 0.99],
-            'alpha': [0.9,0.99]
-            #'max_delta_step': [0]
-        }
+            clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70)
+        elif run == 'crossvalidation':
+            param = {}
+            param['objective'] = 'multi:softprob'
+            param['booster'] = 'gbtree'
+            param['eta'] = 0.2  # high eta values give better perf
+            param['max_depth'] = 10
+            param['silent'] = 1
+            #param['lambda'] = 0.1
+            #param['alpha'] = 0.1
+            #param['nthread'] = 4
+            param['subsample']=0.9
+            param['colsample_bytree']=0.9
+            param['num_class'] = 3
+            param['eval_metric']='mlogloss'
+            param['num_rounds'] = 100
 
-        clf = run_grid_search(parameters,tr_x.as_matrix(),tr_y.as_matrix(),70)
+            dtrain = xgb.DMatrix(tr_x, label=tr_y)
+            history = xgb.cv(param,dtrain,100,nfold=5,metrics={'mlogloss'})
+            print(np.min(history['test-mlogloss-mean']))
+
+        mean_test_logloss.append(np.min(history['test-mlogloss-mean']))
 
 
-
+    print('Avg mlogloss: ',np.mean(mean_test_logloss))
 #Mean validation score: 1.815 (std: 0.021)
 #Parameters: {'max_depth': 5, 'eta': 0.2, 'alpha': 0.9, 'lambda': 0.9}
