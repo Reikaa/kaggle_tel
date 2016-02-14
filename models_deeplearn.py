@@ -288,7 +288,7 @@ class SoftMax(object):
         if self.act == 'sigmoid':
             y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
         elif self.act == 'relu':
-            y_mat = T.ones((sym_y.shape[0],3),dtype=config.floatX)
+            y_mat = T.zeros((sym_y.shape[0],3),dtype=config.floatX)
 
         self.y_mat_update = T.set_subtensor(y_mat[T.arange(sym_y.shape[0]),sym_y], 1)
 
@@ -408,7 +408,7 @@ class SDAE(object):
             layer_x_hat = layer.decode(layer_out,'pretrain')
             if self.act == 'sigmoid':
                 self.pre_costs.append(
-                        T.sum(T.nnet.binary_crossentropy(layer_x_hat,layer_x))
+                        T.sum(T.nnet.binary_crossentropy(layer_x_hat,layer_x),axis=1).dimshuffle(0,'x')
                 )
             elif self.act == 'relu':
                 self.pre_costs.append(
@@ -473,21 +473,33 @@ class SDAE(object):
         for i,layer in enumerate(self.layers):
             pre_cost_i = None
             print('compiling pretrain function for layer ',i)
+            weight_sums = T.sum(T.sum(layer.W**2, axis=1),axis=0) + T.sum(layer.b**2) + T.sum(layer.b_prime**2)
+
             if weights is not None:
-                pre_cost_i = T.mean(self.pre_costs[i]*sym_weights) +  (self.lam/len(self.layers))*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+                pre_cost_i = T.mean(self.pre_costs[i]*sym_weights) + (self.lam/len(self.layers))*weight_sums
             else:
-                pre_cost_i = T.mean(self.pre_costs[i]) +  (self.lam/len(self.layers))*T.sum(T.sum(layer.W**2, axis=1),axis=0)
+                pre_cost_i = T.mean(self.pre_costs[i]) + (self.lam/len(self.layers))*weight_sums
 
             updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(pre_cost_i,wrt=layer.params))]
-            greedy_pretrain_funcs.append(function(inputs=[idx],outputs=pre_cost_i, updates=updates,
+            if weights is not None:
+                if isinstance(weights,list):
+                    greedy_pretrain_funcs.append(function(inputs=[idx],outputs=pre_cost_i, updates=updates,
+                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
+                                                         sym_weights: weights[i][idx * self.batch_size:(idx+1) * self.batch_size]}
+                                                  ))
+                else:
+                    greedy_pretrain_funcs.append(function(inputs=[idx],outputs=pre_cost_i, updates=updates,
                                                givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                                          sym_weights: weights[idx * self.batch_size:(idx+1) * self.batch_size]}
                                                   ))
-
+            else:
+                greedy_pretrain_funcs.append(function(inputs=[idx],outputs=pre_cost_i, updates=updates,
+                                               givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]}))
         def train(batch_id):
             costs = []
             for i in range(len(self.layers)):
                 costs.append(greedy_pretrain_funcs[i](batch_id))
+
             return costs
 
         return train
@@ -511,13 +523,14 @@ class SDAE(object):
         else:
             mean_full_precost = T.mean(self.full_pre_cost) + self.lam*weight_sums
 
-        test_full_precost_func = function(inputs=[idx],outputs=self.full_pre_cost,
-                                          givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
-
         full_pre_updates = [(param, param - self.learn_rate * grad) for param, grad in zip(layer.params, T.grad(mean_full_precost, wrt=layer.params))]
-        theano_full_pretrain_func = function(inputs=[idx],outputs=mean_full_precost, updates=full_pre_updates,
+        if weights is not None:
+            theano_full_pretrain_func = function(inputs=[idx],outputs=mean_full_precost, updates=full_pre_updates,
                                              givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                                      sym_weights: weights[idx * self.batch_size:(idx+1) * self.batch_size]})
+        else:
+            theano_full_pretrain_func = function(inputs=[idx],outputs=mean_full_precost, updates=full_pre_updates,
+                                             givens={self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size]})
 
         def full_pretrain_fn(batch_id):
             return theano_full_pretrain_func(batch_id)
@@ -542,10 +555,12 @@ class SDAE(object):
         else:
             for layer in self.layers:
                 params.extend([layer.W,layer.b])
-            params.extend([self.softmax.W,self.softmax.b])
-            weight_batch = T.dvector('weights')
 
-            weigh_logloss = T.sum(weight_batch*T.nnet.categorical_crossentropy(self.softmax.p_y_given_x,self.softmax.y_mat_update))
+            params.extend([self.softmax.W,self.softmax.b])
+            sym_weights = T.dmatrix('weights')
+
+            logloss = T.nnet.categorical_crossentropy(self.softmax.p_y_given_x,self.softmax.y_mat_update)
+            weigh_logloss = T.mean(sym_weights * logloss.dimshuffle(0,'x'))
 
             theano_output = self.softmax.error
 
@@ -554,13 +569,14 @@ class SDAE(object):
             theano_finetune = function(inputs=[idx],outputs=theano_output,updates=updates,
                                                    givens = {self.sym_x: x[idx * self.batch_size:(idx+1) * self.batch_size],
                                                             self.sym_y: y[idx * self.batch_size:(idx+1) * self.batch_size],
-                                                             weight_batch: weights[idx * self.batch_size:(idx+1) * self.batch_size]
+                                                             sym_weights: weights[idx * self.batch_size:(idx+1) * self.batch_size]
                                                             },on_unused_input='warn')
 
         def fine_tune_fn(batch_id):
+            costs = []
             for _ in range(self.iterations):
-                val = theano_finetune(batch_id)
-            return val
+                costs.append(theano_finetune(batch_id))
+            return costs
 
         return fine_tune_fn
 
