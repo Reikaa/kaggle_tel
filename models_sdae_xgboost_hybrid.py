@@ -456,21 +456,32 @@ class MySDAE(object):
         return ts_ids,test_out_probs
 
 def save_features(file_name, X, Y):
-    header = 'id'
+    header = ['id']
     for i in range(X.shape[1]-1):
-        header+=',feat_'+str(i)
+        header.append('feat_'+str(i))
     if Y is not None:
-        header+=',out'
+        header.append('out')
         res = np.append(X,np.asarray(Y,dtype='int16').reshape(-1,1),axis=1)
+        import csv
+        with open(file_name, 'w',newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for row in res:
+                rowlist = [int(row[0])]
+                rowlist.extend(list(row[1:-1]))
+                rowlist.append(int(row[-1]))
+                writer.writerow(rowlist)
     else:
         res = X
+        import csv
+        with open(file_name, 'w',newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            for row in res:
+                rowlist = [int(row[0])]
+                rowlist.extend(list(row[1:-1]))
+                writer.writerow(rowlist)
 
-    import csv
-    with open(file_name, 'w',newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        for row in res:
-            writer.writerow(row)
 
 
 def logloss(probs, Y, n_classes = 3):

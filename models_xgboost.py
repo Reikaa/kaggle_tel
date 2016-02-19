@@ -274,7 +274,8 @@ class XGBoost(object):
         self.clf = xgb.train(self.param, dtrain, num_boost_rounds, evallist, early_stopping_rounds=10)
 
     def get_probs(self,x):
-        dtest = xgb.DMatrix(x)
+        y = np.asarray([1 for _ in range(x.shape[0])])
+        dtest = xgb.DMatrix(x,label=y)
         return self.clf.predict(dtest)
 
     def cross_validate(self,param, tr_x,tr_y,v_x,v_y,num_round):
@@ -433,7 +434,7 @@ if __name__ == '__main__':
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
     xgboost.train_v2((tr_ids,np.asarray(tr_x),np.asarray(tr_y)),(v_ids,np.asarray(v_x),np.asarray(v_y)),200)
 
-    pred_test = xgboost.get_probs(test_x)
+    pred_test = xgboost.get_probs(np.asarray(test_x))
 
     print('\n Saving out probabilities (test)')
     import csv
