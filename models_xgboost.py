@@ -1,59 +1,6 @@
 import xgboost as xgb
 import numpy as np
 
-def load_teslstra_data(remove_header=False,start_idx=0):
-    import csv
-    train_set = []
-    valid_set = []
-    test_set = []
-    my_test_ids = []
-    correct_order_test_ids = []
-    with open('features_modified_train.csv', 'r',newline='') as f:
-        reader = csv.reader(f)
-        data_x = []
-        data_y = []
-        valid_x = []
-        valid_y = []
-        valid_idx = np.random.randint(0,7000,size=(100,)).tolist()
-
-        for i,row in enumerate(reader):
-            if remove_header and i==0:
-                continue
-            if not i in valid_idx:
-                data_x.append(np.asarray(row[start_idx:-1],dtype=np.float32).tolist())
-                data_y.append(int(row[-1]))
-            else:
-                valid_x.append(np.asarray(row[start_idx:-1],dtype=np.float32).tolist())
-                valid_y.append(int(row[-1]))
-
-        train_set = (data_x,data_y)
-        valid_set = (valid_x,valid_y)
-
-    with open('features_modified_test.csv', 'r',newline='') as f:
-        reader = csv.reader(f)
-        data_x = []
-        for i,row in enumerate(reader):
-            if remove_header and i==0:
-                continue
-            data_x.append(np.asarray(row[start_idx:-1],dtype=np.float32).tolist())
-            my_test_ids.append(int(row[0]))
-        test_set = [data_x]
-
-    with open('test.csv', 'r',newline='') as f:
-        reader = csv.reader(f)
-
-        for i,row in enumerate(reader):
-            if i==0:
-                continue
-            correct_order_test_ids.append(int(row[0]))
-
-    train_x,train_y = train_set
-    valid_x,valid_y = valid_set
-    test_x = test_set
-
-    all_data = [(train_x,train_y),(valid_x,valid_y),(test_x),my_test_ids,correct_order_test_ids]
-
-    return all_data
 
 def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
@@ -87,7 +34,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
             data_x_v2[output].append(row[start_col:-1])
             my_train_ids_v2[output].append(row[0])
 
-        valid_size = 350
+        valid_size = 400
         full_rounds = 1
         orig_class_2_length = len(data_x_v2[2])
         for _ in range(orig_class_2_length):
@@ -116,7 +63,7 @@ def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
 
             elif len(valid_x)<valid_size and rand<0.1:
 
-                for _ in range(4):
+                for _ in range(5):
                     valid_x.append(data_x_v2[0][-1])
                     data_x_v2[0].pop()
                     valid_y.append(0)
@@ -240,42 +187,6 @@ class XGBoost(object):
     def __init__(self,params):
         self.param = params
         self.bst = None
-        self.clf = None
-
-    def train_clf(self,tr_all,v_all,weights=None):
-
-        tr_ids,tr_x,tr_y = tr_all
-        v_ids,v_x,v_y = v_all
-
-        #eval list is used to keep track of performance
-
-        print('\nTraining ...')
-
-        self.clf = xgb.XGBClassifier(max_depth=self.param['max_depth'], learning_rate=self.param['learning_rate'],
-                                     n_estimators=self.param['n_estimators'], silent=True, objective='multi:softprob',
-                                     nthread=self.param['nthread'], gamma=0, min_child_weight=1, max_delta_step=0,
-                                     subsample=1, colsample_bytree=1, base_score=0.5, seed=0)
-
-        if weights is not None:
-            self.clf.fit(np.asarray(tr_x), np.asarray(tr_y),np.asarray(weights)/np.max(weights))
-        else:
-            self.clf.fit(np.asarray(tr_x), np.asarray(tr_y))
-
-
-        #self.bst = xgb.train(self.param, xg_train, num_round, evallist,early_stopping_rounds = 10)
-        pred_train = self.clf.predict_proba(np.asarray(tr_x))
-
-        # get prediction
-        pred_valid = self.clf.predict_proba(np.asarray(v_x))
-
-        pred_y = [np.argmax(arr) for arr in pred_train]
-
-
-        logloss_tr = self.logloss(tr_ids,pred_train,tr_y,weights)
-        logloss_v = self.logloss(v_ids,pred_valid,v_y)
-        print('XGB logloss (train): ',logloss_tr)
-        print('XGB logloss (valid): ',logloss_v,'\n')
-        return tr_ids,pred_y,tr_y
 
     def logloss(self,ids,probs,actuals,weights=None):
         if weights is not None:
@@ -296,7 +207,7 @@ class XGBoost(object):
         logloss = -logloss/len(ids)
         return logloss
 
-    def train(self,tr_all,v_all,weights=None,eps=3):
+    def train_v1(self,tr_all,v_all,weights=None,eps=3):
 
         tr_ids,tr_x,tr_y = tr_all
         if v_all is not None:
@@ -348,6 +259,23 @@ class XGBoost(object):
 
         return tr_ids,pred_y,tr_y
 
+    def train_v2(self,tr_all,v_all,num_boost_rounds):
+
+        tr_ids,tr_x,tr_y = tr_all
+        if v_all is not None:
+            v_ids,v_x,v_y = v_all
+
+        print(tr_x.shape,', ',tr_y.shape)
+        dtrain = xgb.DMatrix(tr_x, label=tr_y)
+        dvalid = xgb.DMatrix(v_x, label=v_y)
+        evallist = [(dtrain,'train'), (dvalid, 'eval')]
+
+        # don't use iterative train if using early_stop
+        self.clf = xgb.train(self.param, dtrain, num_boost_rounds, evallist, early_stopping_rounds=10)
+
+    def get_probs(self,x):
+        dtest = xgb.DMatrix(x)
+        return self.clf.predict(dtest)
 
     def cross_validate(self,param, tr_x,tr_y,v_x,v_y,num_round):
 
@@ -467,7 +395,7 @@ class XGBoost(object):
 
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_train.csv','features_test.csv',True,1)
+    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_dl_all_train.csv','features_dl_all_test.csv',True,1)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
     tr_x,tr_y = tr
@@ -492,38 +420,22 @@ if __name__ == '__main__':
     param['eta'] = 0.1  # high eta values give better perf
     param['max_depth'] = 10
     param['silent'] = 1
-    param['lambda'] = 0.1
-    param['alpha'] = 0.1
+    param['lambda'] = 0.9
+    param['alpha'] = 0.9
     param['nthread'] = 4
     param['num_class'] = 3
     param['eval_metric']='mlogloss'
-    param['num_rounds'] = 2500
-
-    param['learning_rate'] = 0.3
-    param['n_estimators'] = 100
+    param['num_rounds'] = 200
 
     xgboost = XGBoost(param)
     #xgboost2 = XGBoost(param)
 
     #weights = [0.4 if tr_y[i]==2 else 0.3 for i in range(len(tr_y))]
-    xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
-    pred_test = xgboost.logloss(v_x,v_y)
-    #xgboost2.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None,1)
+    xgboost.train_v2((tr_ids,np.asarray(tr_x),np.asarray(tr_y)),(v_ids,np.asarray(v_x),np.asarray(v_y)),200)
 
-    xgboost.train((v_ids,v_x,v_y),None,None,1)
-    pred_test = xgboost.logloss(v_x,v_y)
-    #pred_test2 = xgboost2.logloss(v_x,v_y)
+    pred_test = xgboost.get_probs(test_x)
 
-    #xgboost2.train_clf((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    #pred_test = xgboost2.test_clf(test_x)
-
-
-    #xgboost.train((tr_ids,tr_x,tr_y),(v_ids,v_x,v_y),None)
-    #pred_test = xgboost.test(test_x)
-
-
-
-    '''print('\n Saving out probabilities (test)')
+    print('\n Saving out probabilities (test)')
     import csv
     with open('xgboost_output.csv', 'w',newline='') as f:
         class_dist = [0,0,0]
@@ -533,5 +445,5 @@ if __name__ == '__main__':
             probs = pred_test[int(c_id)]
             row = [id,probs[0], probs[1], probs[2]]
             class_dist[np.argmax(probs)] += 1
-            writer.writerow(row)'''
+            writer.writerow(row)
 

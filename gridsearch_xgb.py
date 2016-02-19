@@ -28,13 +28,13 @@ def divide_test_valid(train_data):
         data_x_v2[output].append(tr_x[i])
         my_train_ids_v2[output].append(tr_ids[i])
 
-    valid_size = 350
+    valid_size = 500
     full_rounds = 1
     orig_class_2_length = len(data_x_v2[2])
     for _ in range(orig_class_2_length):
         rand = np.random.random()
         if rand>=0.9 or len(valid_x)>valid_size:
-            for _ in range(6) :
+            for _ in range(4) :
                 data_x.append(data_x_v2[0][-1])
                 data_x_v2[0].pop()
                 data_y.append(0)
@@ -57,14 +57,14 @@ def divide_test_valid(train_data):
 
         elif len(valid_x)<valid_size and rand<0.1:
 
-            for _ in range(4):
+            for _ in range(2):
                 valid_x.append(data_x_v2[0][-1])
                 data_x_v2[0].pop()
                 valid_y.append(0)
                 my_valid_ids.append(my_train_ids_v2[0][-1])
                 my_train_ids_v2[0].pop()
 
-            for _ in range(2):
+            for _ in range(1):
                 valid_x.append(data_x_v2[1][-1])
                 data_x_v2[1].pop()
                 valid_y.append(1)
@@ -124,11 +124,12 @@ def load_teslstra_data_v3(train_file,test_file,drop_col=None):
             correct_order_test_ids.append(int(row[0]))
 
     if drop_col is not None:
-        header = list(tr_x.columns.values)
-        to_drop = [i for i,v in enumerate(header) if drop_col in v]
+        for drop_col in drop_col:
+            header = list(tr_x.columns.values)
+            to_drop = [i for i,v in enumerate(header) if drop_col in v]
 
-        tr_x.drop(tr_x.columns[to_drop],axis=1,inplace=True)
-        test_x.drop(test_x.columns[to_drop],axis=1,inplace=True)
+            tr_x.drop(tr_x.columns[to_drop],axis=1,inplace=True)
+            test_x.drop(test_x.columns[to_drop],axis=1,inplace=True)
 
     return (tr_ids,tr_x,tr_y), (test_ids,test_x), correct_order_test_ids
 
@@ -218,7 +219,7 @@ def report(grid_scores, n_top=3):
 
 if __name__ == '__main__':
 
-    f_names = ['features','features_dl_1','features_dl_2']
+    f_names = ['features_dl_all']
     mean_test_logloss = []
     run = 'crossvalidation' # gridsearch or crossvalidation
     for f in f_names:
@@ -242,25 +243,34 @@ if __name__ == '__main__':
             param = {}
             param['objective'] = 'multi:softprob'
             param['booster'] = 'gbtree'
-            param['eta'] = 0.2  # high eta values give better perf
+            param['eta'] = 0.1  # high eta values give better perf
             param['max_depth'] = 10
             param['silent'] = 1
-            #param['lambda'] = 0.1
-            #param['alpha'] = 0.1
+            param['lambda'] = 0.9
+            param['alpha'] = 0.9
             #param['nthread'] = 4
             param['subsample']=0.9
             param['colsample_bytree']=0.9
             param['num_class'] = 3
             param['eval_metric']='mlogloss'
-            param['num_rounds'] = 100
+            param['num_rounds'] = 150
 
-            dtrain = xgb.DMatrix(tr_x, label=tr_y)
-            history = xgb.cv(param,dtrain,100,nfold=5,metrics={'mlogloss'})
-            print(np.min(history['test-mlogloss-mean']))
+            weights = []
+            for ex in tr_y:
+                if ex==0:
+                    weights.append(1.0)
+                elif ex==1:
+                    weights.append(1.0)
+                else:
+                    weights.append(1.0)
+
+            dtrain = xgb.DMatrix(tr_x, label=tr_y, weight=weights)
+            history = xgb.cv(param,dtrain,300,nfold=5,metrics={'mlogloss'})
+            print(np.min(history['test-mlogloss-mean']),' at ',np.argmin(history['test-mlogloss-mean']),' iteration')
 
         mean_test_logloss.append(np.min(history['test-mlogloss-mean']))
 
 
-    print('Avg mlogloss: ',np.mean(mean_test_logloss))
+        print(f+', Avg mlogloss: ',np.mean(mean_test_logloss))
 #Mean validation score: 1.815 (std: 0.021)
 #Parameters: {'max_depth': 5, 'eta': 0.2, 'alpha': 0.9, 'lambda': 0.9}

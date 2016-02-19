@@ -220,14 +220,18 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             else:
                 write_row = []
 
+            loc_thresh = 50 # 10 will give 110 element vec, 100 will give 11 element vec
             if 'loc' in include:
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
                         loc_vec = [v[0]*1.0/max_loc]
                 elif 'v' in include['loc']:
                     from math import floor
-                    loc_vec = turn_to_vec([floor(v[0]/100)],floor(max_loc*1./100))
-
+                    val_for_v0 = float((v[0]*1.0 % loc_thresh)/loc_thresh)
+                    if loc_thresh!=1:
+                        loc_vec = turn_to_vec([floor(v[0]/loc_thresh)],floor(max_loc*1./loc_thresh),val_for_v0)
+                    else:
+                        loc_vec = turn_to_vec([v[0]],max_loc,1)
 
 
             if 'feat' in include:
@@ -354,7 +358,7 @@ def select_features(train_file,test_file,remove_header):
 # n for nomarlize
 
 include = {'id':'s','loc':'v','feat':'vn','sev':'v','eve':'v','res':'v'}
-file_name = 'features'
+file_name = 'features_2'
 
 
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)

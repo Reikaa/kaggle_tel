@@ -29,6 +29,7 @@ def tensor_divide_test_valid(train_data,weights=None):
     '''
     import csv
 
+    tmp_weights = [0.2,1.0,1.0]
     v_select_prob = 0.5
     my_train_ids = []
     my_valid_ids = []
@@ -51,20 +52,20 @@ def tensor_divide_test_valid(train_data,weights=None):
         data_x_v2[output].append(tr_x[i])
         my_train_ids_v2[output].append(tr_ids[i])
 
-    valid_size =900
+    valid_size =500
     full_rounds = 1
     orig_class_2_length = len(data_x_v2[2])
     for _ in range(orig_class_2_length):
         rand = np.random.random()
         if rand>=v_select_prob or len(valid_x)>valid_size:
-            for _ in range(6) :
+            for _ in range(4) :
                 data_x.append(data_x_v2[0][-1])
                 data_x_v2[0].pop()
                 data_y.append(0)
                 my_train_ids.append(my_train_ids_v2[0][-1])
                 my_train_ids_v2[0].pop()
                 if weights is None:
-                    my_train_weights.append(0.4)
+                    my_train_weights.append(tmp_weights[0])
                 else:
                     my_train_weights.append(weights[0])
 
@@ -75,7 +76,7 @@ def tensor_divide_test_valid(train_data,weights=None):
                 my_train_ids.append(my_train_ids_v2[1][-1])
                 my_train_ids_v2[1].pop()
                 if weights is None:
-                    my_train_weights.append(1.0)
+                    my_train_weights.append(tmp_weights[1])
                 else:
                     my_train_weights.append(weights[1])
 
@@ -85,7 +86,7 @@ def tensor_divide_test_valid(train_data,weights=None):
             my_train_ids.append(my_train_ids_v2[2][-1])
             my_train_ids_v2[2].pop()
             if weights is None:
-                my_train_weights.append(0.9)
+                my_train_weights.append(tmp_weights[2])
             else:
                 my_train_weights.append(weights[2])
 
@@ -93,7 +94,7 @@ def tensor_divide_test_valid(train_data,weights=None):
 
         elif len(valid_x)<valid_size and rand<v_select_prob:
 
-            for _ in range(5):
+            for _ in range(4):
                 valid_x.append(data_x_v2[0][-1])
                 data_x_v2[0].pop()
                 valid_y.append(0)
@@ -120,19 +121,28 @@ def tensor_divide_test_valid(train_data,weights=None):
         data_x.append(data_x_v2[0][j])
         data_y.append(0)
         my_train_ids.append(my_train_ids_v2[0][j])
-        my_train_weights.append(0.152)
+        if weights is None:
+            my_train_weights.append(tmp_weights[0])
+        else:
+            my_train_weights.append(weights[0])
 
     for j in range(len(data_x_v2[1])):
         data_x.append(data_x_v2[1][j])
         data_y.append(1)
         my_train_ids.append(my_train_ids_v2[1][j])
-        my_train_weights.append(0.388)
+        if weights is None:
+            my_train_weights.append(tmp_weights[1])
+        else:
+            my_train_weights.append(weights[1])
 
     for j in range(len(data_x_v2[2])):
         data_x.append(data_x_v2[2][j])
         data_y.append(2)
         my_train_ids.append(my_train_ids_v2[2][j])
-        my_train_weights.append(1.0)
+        if weights is None:
+            my_train_weights.append(tmp_weights[2])
+        else:
+            my_train_weights.append(weights[2])
 
     train_set = (my_train_ids,data_x,data_y)
     valid_set = (my_valid_ids,valid_x,valid_y)
@@ -451,11 +461,17 @@ def save_features(file_name, X, Y):
         header+=',feat_'+str(i)
     if Y is not None:
         header+=',out'
-        res = np.append(X,Y,axis=1)
+        res = np.append(X,np.asarray(Y,dtype='int16').reshape(-1,1),axis=1)
     else:
         res = X
 
-    np.savetxt(file_name, res, delimiter=",", header=header, comments='')
+    import csv
+    with open(file_name, 'w',newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        for row in res:
+            writer.writerow(row)
+
 
 def logloss(probs, Y, n_classes = 3):
     #assert len(probs)==len(Y)
@@ -508,14 +524,14 @@ if __name__ == '__main__':
     use_weights = True
     select_features = False # select features using extratrees (based on importance)
     train_with_valid = False # this specify if we want to finetune with the validation data
-    persist_features = False
-    use_layerwise_weights = True
+    persist_features = True
+    use_layerwise_weights = False
 
     tr_v_rounds = 20
     print('Select features with Extratrees: ',select_features)
     print('Train with validation set: ',train_with_valid)
 
-    th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_train.csv', 'features_test.csv',['loc'])
+    th_train,th_test,correct_ids = load_tensor_teslstra_data_v3('features_2_train.csv', 'features_2_test.csv',None)
     th_tr_slice,th_v_slice,tr_weights = tensor_divide_test_valid((th_train[0],th_train[1],th_train[2]),None)
 
     if not use_weights:
@@ -530,13 +546,13 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = th_train[1].get_value(borrow=True).shape[1]
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [150,150,150]
+    dl_params_1['hid_sizes'] = [200]
     dl_params_1['learning_rate'] = 0.15
     dl_params_1['pre_epochs'] = 30
     dl_params_1['fine_epochs'] = 500
     dl_params_1['lam'] = 1e-6
     dl_params_1['act'] = 'relu'
-    dl_params_1['denoise'] = True
+    dl_params_1['denoise'] = False
     dl_params_1['corr_level'] = 0.2
     if test_function:
         dl_params_1['pre_epochs'] = 2
@@ -568,12 +584,12 @@ if __name__ == '__main__':
     xgbAccuracyByClass = []
 
     if not test_function:
-        xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=5,subsample=0.9,colsample_bytree=0.9))
+        xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=10,subsample=0.9,colsample_bytree=0.9))
         if early_stopping:
             xgbClassifiers[-1].fit_with_early_stop(th_tr_slice[1].get_value(borrow=True), th_tr_slice[2].eval(),
-                                                   th_v_slice[1].get_value(borrow=True), th_v_slice[2].eval(), tr_weights)
+                                                   th_v_slice[1].get_value(borrow=True), th_v_slice[2].eval(), None)
         else:
-            xgbClassifiers[-1].fit(th_tr_slice[1].get_value(borrow=True), th_tr_slice[2].eval(),tr_weights)
+            xgbClassifiers[-1].fit(th_tr_slice[1].get_value(borrow=True), th_tr_slice[2].eval(),None)
 
         if train_with_valid:
             xgbClassifiers[-1].fit_with_valid(th_v_slice[1].get_value(borrow=True),th_v_slice[2].eval(),tr_v_rounds)
@@ -585,6 +601,12 @@ if __name__ == '__main__':
         xgbAccuracyByClass.append(get_acc_by_class(
             xgbClassifiers[-1].predict(th_v_slice[1].get_value(borrow=True)),th_v_slice[2].eval()
         ))
+
+    tr_all_features = np.append(
+        np.append(th_tr_slice[0].eval().reshape(-1,1),th_tr_slice[1].get_value(),axis=1),
+        np.append(th_v_slice[0].eval().reshape(-1,1),th_v_slice[1].get_value(),axis=1),axis=0)
+    ts_all_features = np.append(th_test[0].eval().reshape(-1,1),th_test[1].get_value(),axis=1)
+
     for h_i in range(len(dl_params_1['hid_sizes'])):
         print('Getting features for ',h_i,' layer')
         (tr_feat,tr_out),ts_feat = sdae_pre.get_features(th_tr_slice,th_v_slice,th_test,h_i)
@@ -610,7 +632,7 @@ if __name__ == '__main__':
 
         if 'xgb' in second_layer_classifiers:
             print('XGBClassifier for ', h_i, ' layer ...')
-            xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=5,subsample=0.9,colsample_bytree=0.9))
+            xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=10,subsample=0.9,colsample_bytree=0.9))
         if select_features:
             forest = ExtraTreesClassifier(n_estimators=1000, max_features="auto", n_jobs=5, random_state=0)
             forest.fit(tr_slice_x_tmp, tr_slice_y_tmp)
@@ -635,9 +657,9 @@ if __name__ == '__main__':
             if 'xgb' in second_layer_classifiers:
                 if early_stopping:
                     xgbClassifiers[-1].fit_with_early_stop(tr_new_features_tmp, tr_slice_y_tmp,
-                                                           v_new_features_tmp, v_slice_y_tmp, tr_weights_tmp)
+                                                           v_new_features_tmp, v_slice_y_tmp, None)
                 else:
-                    xgbClassifiers[-1].fit(tr_new_features_tmp, tr_slice_y_tmp,tr_weights_tmp)
+                    xgbClassifiers[-1].fit(tr_new_features_tmp, tr_slice_y_tmp,None)
 
                 if train_with_valid:
                     xgbClassifiers[-1].fit_with_valid(v_new_features_tmp,v_slice_y_tmp,tr_v_rounds)
@@ -650,9 +672,9 @@ if __name__ == '__main__':
             if 'xgb' in second_layer_classifiers:
                 if early_stopping:
                     xgbClassifiers[-1].fit_with_early_stop(tr_slice_x_tmp, tr_slice_y_tmp,
-                                                           v_slice_x_tmp, v_slice_y_tmp, tr_weights_tmp)
+                                                           v_slice_x_tmp, v_slice_y_tmp, None)
                 else:
-                    xgbClassifiers[-1].fit(tr_slice_x_tmp, tr_slice_y_tmp,tr_weights_tmp)
+                    xgbClassifiers[-1].fit(tr_slice_x_tmp, tr_slice_y_tmp,None)
                 if train_with_valid:
                     xgbClassifiers[-1].fit_with_valid(v_slice_x_tmp,v_slice_y_tmp,tr_v_rounds)
 
@@ -680,6 +702,17 @@ if __name__ == '__main__':
                 ts_x_save_features = np.append(ts_ids_tmp.reshape(-1,1),ts_x_tmp,axis=1)
                 save_features('features_dl_'+str(h_i)+'_test.csv',ts_x_save_features,None)
 
+                print('all tr features: ',tr_all_features.shape)
+                print('all ts features: ',ts_all_features.shape)
+                # all features
+                tr_all_features = np.append(tr_all_features,
+                                            np.append(tr_slice_x_tmp,v_slice_x_tmp,axis=0),axis=1)
+                ts_all_features = np.append(ts_all_features,ts_x_tmp,axis=1)
+
+                if h_i == len(dl_params_1['hid_sizes'])-1:
+                    save_features('features_dl_all_train.csv',tr_all_features,tr_y_save_features)
+                    save_features('features_dl_all_test.csv',ts_all_features,None)
+
     print('Loglosses: ',xgbLogLosses)
 
     avg_result = np.zeros((th_v_slice[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
@@ -691,6 +724,7 @@ if __name__ == '__main__':
     avg_test_result = np.zeros((th_test[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
     weigh_avg_test_result = np.zeros((th_test[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
     best_test_result = np.zeros((th_test[0].eval().shape[0],dl_params_1['out_size']),dtype=config.floatX)
+    best_for_best_test_result = np.zeros((th_test[0].eval().shape[0], dl_params_1['out_size']), dtype=config.floatX)
 
     for tmp in range(len(xgbAccuracyByClass)):
         print('Acc by class for classifier ',tmp,': ',xgbAccuracyByClass[tmp])
@@ -706,6 +740,16 @@ if __name__ == '__main__':
         best_probs = xgbProbas[best_classif][row_i]
         best_for_best_result[row_i] = best_probs
 
+    for row_i in range(best_for_best_test_result.shape[0]):
+        class_for_row = []
+        for proba in xgbTestProbas:
+            class_for_row.append(np.argmax(proba[row_i]))
+        counter = Counter(class_for_row)
+        maj_vote = counter.most_common()[0][0]
+        best_classif = np.argmin(acc_by_class[:,int(maj_vote)])
+        best_test_probs = xgbTestProbas[best_classif][row_i]
+        best_for_best_test_result[row_i] = best_test_probs
+
     for r_i,result in enumerate(xgbProbas):
         test_result = xgbTestProbas[r_i]
         if r_i == np.argmin(xgbLogLosses):
@@ -716,7 +760,7 @@ if __name__ == '__main__':
             weigh_avg_test_result = np.add(weigh_avg_test_result,((1-0.3)/(len(xgbTestProbas)-1))*np.asarray(test_result))
 
         avg_result = np.add(avg_result,np.asarray(result))/len(xgbProbas)
-        avg_test_result = np.add(avg_test_result,np.asarray(test_result))
+        avg_test_result = np.add(avg_test_result,np.asarray(test_result)/len(xgbTestProbas))
 
     for r_i in np.argsort(xgbLogLosses):
         alpha *= 0.5
@@ -729,6 +773,27 @@ if __name__ == '__main__':
     print("Best for Best logloss: ", logloss(best_for_best_result, th_v_slice[2].eval()))
     print('\n Saving out probabilities (test)')
     import csv
+
+    with open('avg_sdae_xgboost_output.csv', 'w',newline='') as f:
+
+        writer = csv.writer(f)
+        writer.writerow(['id','predict_0','predict_1','predict_2'])
+        for id in correct_ids:
+            c_id = ts_ids.flatten().tolist().index(id)
+            probs = avg_test_result[int(c_id)]
+            row = [id,probs[0], probs[1], probs[2]]
+            writer.writerow(row)
+
+    with open('bfb_sdae_xgboost_output.csv', 'w',newline='') as f:
+
+        writer = csv.writer(f)
+        writer.writerow(['id','predict_0','predict_1','predict_2'])
+        for id in correct_ids:
+            c_id = ts_ids.flatten().tolist().index(id)
+            probs = best_for_best_test_result[int(c_id)]
+            row = [id,probs[0], probs[1], probs[2]]
+            writer.writerow(row)
+
     with open('W_sdae_xgboost_output.csv', 'w',newline='') as f:
 
         writer = csv.writer(f)
