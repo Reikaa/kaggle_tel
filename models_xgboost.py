@@ -2,134 +2,165 @@ import xgboost as xgb
 import numpy as np
 
 
-def load_teslstra_data_v2(train_file,test_file,remove_header=False,start_col=1):
+import pandas as pd
+def load_teslstra_data_v3(train_file,test_file,drop_cols=None):
+
+    tr_data = pd.read_csv(train_file)
+    test_data = pd.read_csv(test_file)
+
+    tr_ids = tr_data[['id']]
+    tr_x = tr_data.ix[:,1:-1]
+    tr_y = tr_data.ix[:,-1]
+
+    test_ids = test_data[['id']]
+    test_x = test_data.ix[:,1:]
+    correct_order_test_ids = []
+    import csv
+    with open('test.csv', 'r',newline='') as f:
+        reader = csv.reader(f)
+        for i,row in enumerate(reader):
+            if i==0:
+                continue
+            correct_order_test_ids.append(int(row[0]))
+
+    if drop_cols is not None:
+        for drop_col in drop_cols:
+            header = list(tr_x.columns.values)
+            to_drop = [i for i,v in enumerate(header) if drop_col in v]
+
+            tr_x.drop(tr_x.columns[to_drop],axis=1,inplace=True)
+            test_x.drop(test_x.columns[to_drop],axis=1,inplace=True)
+
+    return (tr_ids.as_matrix(),tr_x.as_matrix(),tr_y.as_matrix()), \
+           (test_ids.as_matrix(),test_x.as_matrix()), correct_order_test_ids
+
+def divide_test_valid(train_data,weights=None):
 
     '''
             0th class 6.58, 1st class 2.58, 2nd class 1 (ratios)
     '''
     import csv
-    train_set = []
-    valid_set = []
-    test_set = []
+
+    tmp_weights = [0.2,1.0,1.0]
+    v_select_prob = 0.5
     my_train_ids = []
     my_valid_ids = []
     my_train_ids_v2 = [[],[],[]]
-    my_test_ids = []
-    correct_order_test_ids = []
+    my_train_weights = []
 
-    with open(train_file, 'r',newline='') as f:
-        reader = csv.reader(f)
-        data_x = []
-        data_y = []
-        valid_x,valid_y = [],[]
-        data_x_v2 = [[],[],[]]
+    data_x = []
+    data_y = []
+    valid_x,valid_y = [],[]
+    data_x_v2 = [[],[],[]]
 
+    tr_ids,tr_x, tr_y = train_data
 
-        for i,row in enumerate(reader):
-            if remove_header and i==0:
-                continue
+    for i in range(len(tr_x)):
+        # first 2 columns are ID and location
+        output = int(tr_y[i])
+        data_x_v2[output].append(tr_x[i])
+        my_train_ids_v2[output].append(tr_ids[i])
 
-            # first 2 columns are ID and location
-            output = int(row[-1])
-            data_x_v2[output].append(row[start_col:-1])
-            my_train_ids_v2[output].append(row[0])
+    valid_size =500
+    full_rounds = 1
+    orig_class_2_length = len(data_x_v2[2])
+    for _ in range(orig_class_2_length):
+        rand = np.random.random()
+        if rand>=v_select_prob or len(valid_x)>valid_size:
+            for _ in range(4) :
+                data_x.append(data_x_v2[0][-1])
+                data_x_v2[0].pop()
+                data_y.append(0)
+                my_train_ids.append(my_train_ids_v2[0][-1])
+                my_train_ids_v2[0].pop()
+                if weights is None:
+                    my_train_weights.append(tmp_weights[0])
+                else:
+                    my_train_weights.append(weights[0])
 
-        valid_size = 400
-        full_rounds = 1
-        orig_class_2_length = len(data_x_v2[2])
-        for _ in range(orig_class_2_length):
-            rand = np.random.random()
-            if rand>=0.9 or len(valid_x)>valid_size:
-                for _ in range(6) :
-                    data_x.append(data_x_v2[0][-1])
-                    data_x_v2[0].pop()
-                    data_y.append(0)
-                    my_train_ids.append(my_train_ids_v2[0][-1])
-                    my_train_ids_v2[0].pop()
+            for _ in range(2):
+                data_x.append(data_x_v2[1][-1])
+                data_x_v2[1].pop()
+                data_y.append(1)
+                my_train_ids.append(my_train_ids_v2[1][-1])
+                my_train_ids_v2[1].pop()
+                if weights is None:
+                    my_train_weights.append(tmp_weights[1])
+                else:
+                    my_train_weights.append(weights[1])
 
-                for _ in range(2):
-                    data_x.append(data_x_v2[1][-1])
-                    data_x_v2[1].pop()
-                    data_y.append(1)
-                    my_train_ids.append(my_train_ids_v2[1][-1])
-                    my_train_ids_v2[1].pop()
+            data_x.append(data_x_v2[2][-1])
+            data_x_v2[2].pop()
+            data_y.append(2)
+            my_train_ids.append(my_train_ids_v2[2][-1])
+            my_train_ids_v2[2].pop()
+            if weights is None:
+                my_train_weights.append(tmp_weights[2])
+            else:
+                my_train_weights.append(weights[2])
 
-                data_x.append(data_x_v2[2][-1])
-                data_x_v2[2].pop()
-                data_y.append(2)
-                my_train_ids.append(my_train_ids_v2[2][-1])
-                my_train_ids_v2[2].pop()
-                full_rounds += 1
+            full_rounds += 1
 
-            elif len(valid_x)<valid_size and rand<0.1:
+        elif len(valid_x)<valid_size and rand<v_select_prob:
 
-                for _ in range(5):
-                    valid_x.append(data_x_v2[0][-1])
-                    data_x_v2[0].pop()
-                    valid_y.append(0)
-                    my_valid_ids.append(my_train_ids_v2[0][-1])
-                    my_train_ids_v2[0].pop()
+            for _ in range(4):
+                valid_x.append(data_x_v2[0][-1])
+                data_x_v2[0].pop()
+                valid_y.append(0)
+                my_valid_ids.append(my_train_ids_v2[0][-1])
+                my_train_ids_v2[0].pop()
 
-                for _ in range(2):
-                    valid_x.append(data_x_v2[1][-1])
-                    data_x_v2[1].pop()
-                    valid_y.append(1)
-                    my_valid_ids.append(my_train_ids_v2[1][-1])
-                    my_train_ids_v2[1].pop()
+            for _ in range(2):
+                valid_x.append(data_x_v2[1][-1])
+                data_x_v2[1].pop()
+                valid_y.append(1)
+                my_valid_ids.append(my_train_ids_v2[1][-1])
+                my_train_ids_v2[1].pop()
 
+            for _ in range(1):
                 valid_x.append(data_x_v2[2][-1])
                 data_x_v2[2].pop()
                 valid_y.append(2)
                 my_valid_ids.append(my_train_ids_v2[2][-1])
                 my_train_ids_v2[2].pop()
 
-                full_rounds += 1
+            full_rounds += 1
 
-        for j in range(len(data_x_v2[0])):
-            data_x.append(data_x_v2[0][j])
-            data_y.append(0)
-            my_train_ids.append(my_train_ids_v2[0][j])
+    for j in range(len(data_x_v2[0])):
+        data_x.append(data_x_v2[0][j])
+        data_y.append(0)
+        my_train_ids.append(my_train_ids_v2[0][j])
+        if weights is None:
+            my_train_weights.append(tmp_weights[0])
+        else:
+            my_train_weights.append(weights[0])
 
-        for j in range(len(data_x_v2[1])):
-            data_x.append(data_x_v2[1][j])
-            data_y.append(1)
-            my_train_ids.append(my_train_ids_v2[1][j])
+    for j in range(len(data_x_v2[1])):
+        data_x.append(data_x_v2[1][j])
+        data_y.append(1)
+        my_train_ids.append(my_train_ids_v2[1][j])
+        if weights is None:
+            my_train_weights.append(tmp_weights[1])
+        else:
+            my_train_weights.append(weights[1])
 
-        for j in range(len(data_x_v2[2])):
-            data_x.append(data_x_v2[2][j])
-            data_y.append(2)
-            my_train_ids.append(my_train_ids_v2[2][j])
+    for j in range(len(data_x_v2[2])):
+        data_x.append(data_x_v2[2][j])
+        data_y.append(2)
+        my_train_ids.append(my_train_ids_v2[2][j])
+        if weights is None:
+            my_train_weights.append(tmp_weights[2])
+        else:
+            my_train_weights.append(weights[2])
 
-        train_set = (data_x,data_y)
-        valid_set = (valid_x,valid_y)
+    train_set = (my_train_ids,data_x,data_y)
+    valid_set = (my_valid_ids,valid_x,valid_y)
 
-    with open(test_file, 'r',newline='') as f:
-        reader = csv.reader(f)
-        data_x = []
-        for i,row in enumerate(reader):
-            if remove_header and i==0:
-                continue
-            # first 2 columns are ID and location
-            data_x.append(row[start_col:])
-            my_test_ids.append(int(row[0]))
-        test_set = [data_x]
+    print('Train: ',len(train_set[0]),' x ',len(train_set[1][0]))
+    print('Valid: ',len(valid_set[0]),' x ',len(valid_set[1][0]))
 
-    with open('test.csv', 'r',newline='') as f:
-        reader = csv.reader(f)
+    return train_set,valid_set,np.asarray(my_train_weights).reshape(-1,1)
 
-        for i,row in enumerate(reader):
-            if i==0:
-                continue
-            correct_order_test_ids.append(int(row[0]))
-
-
-    print('Train: ',len(train_set[0]),' x ',len(train_set[0][0]))
-    print('Valid: ',len(valid_set[0]),' x ',len(valid_set[0][0]))
-    print('Test: ',len(test_set[0]),' x ',len(test_set[0][0]))
-
-    all_data = [train_set,valid_set,test_set[0],my_test_ids,correct_order_test_ids,my_train_ids,my_valid_ids]
-
-    return all_data
 
 def weighted_softmax_obj(weights, preds, dtrain):
 
@@ -393,24 +424,38 @@ class XGBoost(object):
 
 
 
-
+from sklearn.ensemble import ExtraTreesClassifier
 if __name__ == '__main__':
     print('Loading data ...')
-    tr,v,test,ts_ids,correct_ids,tr_ids,v_ids =load_teslstra_data_v2('features_dl_all_train.csv','features_dl_all_test.csv',True,1)
+    tr_v_all,ts_all,correct_ids =load_teslstra_data_v3('features_2_train.csv','features_2_test.csv',None)
+    tr_all,v_all,weigts = divide_test_valid(tr_v_all,None)
     #tr,v,test,my_ids,correct_ids =load_teslstra_data_v2('deepnet_features_train_0.csv','deepnet_features_test_0.csv',False,1)
 
-    tr_x,tr_y = tr
-    v_x,v_y = v
-    tr_big_x = []
-    tr_big_x.extend(v_x)
-    tr_big_x.extend(tr_x)
+    tr_ids,tr_x,tr_y = tr_all
+    v_ids,v_x,v_y = v_all
+    ts_ids,test_x = ts_all
 
-    tr_big_y =[]
-    tr_big_y.extend(v_y)
-    tr_big_y.extend(tr_y)
+    tr_x = np.asarray(tr_x)
+    v_x = np.asarray(v_x)
+    test_x = np.asarray(test_x)
 
-    test_x = test
+    clf = ExtraTreesClassifier()
+    clf = clf.fit(tr_v_all[1], tr_v_all[2])
+    fimp = np.asarray(clf.feature_importances_)
+    ord_feature_idx = list(reversed(np.argsort(fimp)))
+    fimp_thresh = 0.6
+    # need to sort, else hard to perform delete
+    train_feature_idx = ord_feature_idx[int(fimp_thresh*len(ord_feature_idx)):]
+    train_feature_idx.sort()
+    for fidx in reversed(train_feature_idx):
+        tr_x = np.delete(tr_x,fidx,axis=1)
+        v_x = np.delete(v_x,fidx,axis=1)
+        test_x = np.delete(test_x,fidx,axis=1)
 
+    print("After Transformation ...")
+    print('Train: ',tr_x.shape)
+    print('Valid: ',v_x.shape)
+    print('Test: ',test_x.shape)
 
     print('Defining parameters ...')
     param = {}

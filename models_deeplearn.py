@@ -408,7 +408,8 @@ class SDAE(object):
             layer_x_hat = layer.decode(layer_out,'pretrain')
             if self.act == 'sigmoid':
                 self.pre_costs.append(
-                        T.sum(T.nnet.binary_crossentropy(layer_x_hat,layer_x),axis=1).dimshuffle(0,'x')
+                        #T.sum(T.nnet.binary_crossentropy(layer_x_hat,layer_x),axis=1).dimshuffle(0,'x')
+                        T.sqrt(T.sum((layer_x - layer_x_hat)**2,axis=1)).dimshuffle(0,'x')
                 )
             elif self.act == 'relu':
                 self.pre_costs.append(

@@ -29,7 +29,7 @@ def tensor_divide_test_valid(train_data,weights=None):
     '''
     import csv
 
-    tmp_weights = [0.2,1.0,1.0]
+    tmp_weights = [1.0,1.0,1.0]
     v_select_prob = 0.5
     my_train_ids = []
     my_valid_ids = []
@@ -479,7 +479,7 @@ def save_features(file_name, X, Y):
             writer.writerow(header)
             for row in res:
                 rowlist = [int(row[0])]
-                rowlist.extend(list(row[1:-1]))
+                rowlist.extend(list(row[1:]))
                 writer.writerow(rowlist)
 
 
@@ -536,6 +536,8 @@ if __name__ == '__main__':
     select_features = False # select features using extratrees (based on importance)
     train_with_valid = False # this specify if we want to finetune with the validation data
     persist_features = True
+    include_original_features = True # do we include original features in the file we save all features togeter?
+
     use_layerwise_weights = False
 
     tr_v_rounds = 20
@@ -557,11 +559,11 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = th_train[1].get_value(borrow=True).shape[1]
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [200]
+    dl_params_1['hid_sizes'] = [200,100]
     dl_params_1['learning_rate'] = 0.15
-    dl_params_1['pre_epochs'] = 30
+    dl_params_1['pre_epochs'] = 50
     dl_params_1['fine_epochs'] = 500
-    dl_params_1['lam'] = 1e-6
+    dl_params_1['lam'] = 1e-10
     dl_params_1['act'] = 'relu'
     dl_params_1['denoise'] = False
     dl_params_1['corr_level'] = 0.2
@@ -595,7 +597,7 @@ if __name__ == '__main__':
     xgbAccuracyByClass = []
 
     if not test_function:
-        xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=10,subsample=0.9,colsample_bytree=0.9))
+        xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.05,max_depth=8,subsample=0.9,colsample_bytree=0.9))
         if early_stopping:
             xgbClassifiers[-1].fit_with_early_stop(th_tr_slice[1].get_value(borrow=True), th_tr_slice[2].eval(),
                                                    th_v_slice[1].get_value(borrow=True), th_v_slice[2].eval(), None)
@@ -613,10 +615,14 @@ if __name__ == '__main__':
             xgbClassifiers[-1].predict(th_v_slice[1].get_value(borrow=True)),th_v_slice[2].eval()
         ))
 
-    tr_all_features = np.append(
-        np.append(th_tr_slice[0].eval().reshape(-1,1),th_tr_slice[1].get_value(),axis=1),
-        np.append(th_v_slice[0].eval().reshape(-1,1),th_v_slice[1].get_value(),axis=1),axis=0)
-    ts_all_features = np.append(th_test[0].eval().reshape(-1,1),th_test[1].get_value(),axis=1)
+    if include_original_features:
+        tr_all_features = np.append(
+            np.append(th_tr_slice[0].eval().reshape(-1,1),th_tr_slice[1].get_value(),axis=1),
+            np.append(th_v_slice[0].eval().reshape(-1,1),th_v_slice[1].get_value(),axis=1),axis=0)
+        ts_all_features = np.append(th_test[0].eval().reshape(-1,1),th_test[1].get_value(),axis=1)
+    else:
+        tr_all_features = np.append(th_tr_slice[0].eval().reshape(-1,1),th_v_slice[0].eval().reshape(-1,1)).reshape(-1,1)
+        ts_all_features = np.asarray(th_test[0].eval().reshape(-1,1)).reshape(-1,1)
 
     for h_i in range(len(dl_params_1['hid_sizes'])):
         print('Getting features for ',h_i,' layer')
@@ -643,7 +649,7 @@ if __name__ == '__main__':
 
         if 'xgb' in second_layer_classifiers:
             print('XGBClassifier for ', h_i, ' layer ...')
-            xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.1,max_depth=10,subsample=0.9,colsample_bytree=0.9))
+            xgbClassifiers.append(MyXGBClassifier(n_rounds=num_rounds,eta=0.05,max_depth=8,subsample=0.9,colsample_bytree=0.9))
         if select_features:
             forest = ExtraTreesClassifier(n_estimators=1000, max_features="auto", n_jobs=5, random_state=0)
             forest.fit(tr_slice_x_tmp, tr_slice_y_tmp)
@@ -713,15 +719,20 @@ if __name__ == '__main__':
                 ts_x_save_features = np.append(ts_ids_tmp.reshape(-1,1),ts_x_tmp,axis=1)
                 save_features('features_dl_'+str(h_i)+'_test.csv',ts_x_save_features,None)
 
+                ids_all = tr_all_features[:,0]
+                ids_curr = tr_feat[:,0]
+                nonz_count = np.count_nonzero(ids_all-ids_curr)
+                print(nonz_count)
+                assert nonz_count == 0
+
                 print('all tr features: ',tr_all_features.shape)
                 print('all ts features: ',ts_all_features.shape)
                 # all features
-                tr_all_features = np.append(tr_all_features,
-                                            np.append(tr_slice_x_tmp,v_slice_x_tmp,axis=0),axis=1)
-                ts_all_features = np.append(ts_all_features,ts_x_tmp,axis=1)
+                tr_all_features = np.append(tr_all_features,tr_feat[:,1:],axis=1)
+                ts_all_features = np.append(ts_all_features,ts_feat[:,1:],axis=1)
 
                 if h_i == len(dl_params_1['hid_sizes'])-1:
-                    save_features('features_dl_all_train.csv',tr_all_features,tr_y_save_features)
+                    save_features('features_dl_all_train.csv',tr_all_features,tr_out)
                     save_features('features_dl_all_test.csv',ts_all_features,None)
 
     print('Loglosses: ',xgbLogLosses)

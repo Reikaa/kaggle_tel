@@ -217,6 +217,7 @@ def report(grid_scores, n_top=3):
         print("Parameters: {0}".format(score.parameters))
         print("")
 
+from sklearn.ensemble import ExtraTreesClassifier
 if __name__ == '__main__':
 
     f_names = ['features_dl_all']
@@ -226,6 +227,8 @@ if __name__ == '__main__':
         tr_data, test_data, correct_ids = load_teslstra_data_v3(f+'_train.csv',f+'_test.csv',None)
         tr_ids,tr_x,tr_y = tr_data
         ts_ids,ts_x = test_data
+
+
         print('Train: ', tr_x.shape)
         print('Test: ', ts_x.shape)
 
@@ -243,7 +246,7 @@ if __name__ == '__main__':
             param = {}
             param['objective'] = 'multi:softprob'
             param['booster'] = 'gbtree'
-            param['eta'] = 0.1  # high eta values give better perf
+            param['eta'] = 0.03  # high eta values give better perf
             param['max_depth'] = 10
             param['silent'] = 1
             param['lambda'] = 0.9
@@ -253,7 +256,10 @@ if __name__ == '__main__':
             param['colsample_bytree']=0.9
             param['num_class'] = 3
             param['eval_metric']='mlogloss'
-            param['num_rounds'] = 150
+            param['num_rounds'] = 1500
+
+            tr_x = np.asarray(tr_x)
+            ts_x = np.asarray(ts_x)
 
             weights = []
             for ex in tr_y:
@@ -264,13 +270,29 @@ if __name__ == '__main__':
                 else:
                     weights.append(1.0)
 
+            clf = ExtraTreesClassifier()
+            clf = clf.fit(tr_x, tr_y)
+            fimp = np.asarray(clf.feature_importances_)
+            ord_feature_idx = list(reversed(np.argsort(fimp)))
+            fimp_thresh = 1.
+            # need to sort, else hard to perform delete
+            train_feature_idx = ord_feature_idx[int(fimp_thresh*len(ord_feature_idx)):]
+            train_feature_idx.sort()
+            for fidx in reversed(train_feature_idx):
+                tr_x = np.delete(tr_x,fidx,axis=1)
+                ts_x = np.delete(ts_x,fidx,axis=1)
+
+            print("After Transformation ...")
+            print('Train: ',tr_x.shape)
+            print('Test: ',ts_x.shape)
+
             dtrain = xgb.DMatrix(tr_x, label=tr_y, weight=weights)
-            history = xgb.cv(param,dtrain,300,nfold=5,metrics={'mlogloss'})
+            history = xgb.cv(param,dtrain,param['num_rounds'],nfold=5,metrics={'mlogloss'})
             print(np.min(history['test-mlogloss-mean']),' at ',np.argmin(history['test-mlogloss-mean']),' iteration')
 
         mean_test_logloss.append(np.min(history['test-mlogloss-mean']))
 
 
-        print(f+', Avg mlogloss: ',np.mean(mean_test_logloss))
+        #print(f+', Avg mlogloss: ',np.mean(mean_test_logloss))
 #Mean validation score: 1.815 (std: 0.021)
 #Parameters: {'max_depth': 5, 'eta': 0.2, 'alpha': 0.9, 'lambda': 0.9}

@@ -90,7 +90,7 @@ with open('log_feature.csv', 'r',newline='') as f:
 important_features=[] # based on the values count for each feature
 
 for k,v in feature_count.items():
-    if v > 1:
+    if v > 10:
         important_features.append(k)
 max_feature = len(important_features)
 
@@ -210,6 +210,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
     else:
         file_name += '_test.csv'
 
+    train_data_mat = [[],[],[]]
+
     doOnce = False
     with open(file_name, 'w',newline='') as f:
         writer = csv.writer(f)
@@ -251,19 +253,36 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                     if 'n' in include['sev']:
                         sev_vec = [severity_data[k]*1.0/max_severity]
                     else:
-                        sev_vec = [severity_data[k]]
+                        sev_vec = [severity_data[k][0]]
                 elif 'v' in include['sev']:
                     sev_vec = turn_to_vec(severity_data[k],max_severity)
 
             if 'eve' in include:
                 if 's' in include['eve']:
-                    raise NotImplementedError
-                elif 'v' in include['sev']:
+                    event_vec = []
+                    if 'mul' in include['eve']:
+                        e_mul = 1
+                        for e in event_data[k]:
+                            e_mul *= e
+                        event_vec.append(e_mul)
+                    if 'mu' in include['eve']:
+                        e_mu = np.mean(event_data[k])
+                        event_vec.append(e_mu)
+
+                elif 'v' in include['eve']:
                     event_vec = turn_to_vec(event_data[k],max_event)
 
             if 'res' in include:
                 if 's' in include['res']:
-                    raise NotImplementedError
+                    res_vec =[]
+                    if 'mul' in include['res']:
+                        r_mul = 1
+                        for r in resource_data[k]:
+                            r_mul *= r
+                        res_vec.append(r_mul)
+                    if 'mu' in include['res']:
+                        r_mu = np.mean(resource_data[k])
+                        res_vec.append(r_mu)
                 elif 'v' in include['res']:
                     res_vec = turn_to_vec(resource_data[k],max_res)
 
@@ -293,8 +312,18 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             if isTrain:
                 out = v[1]
                 write_row.extend([out])
+                train_data_mat[out].append(write_row)
 
             writer.writerow(write_row)
+
+    if isTrain:
+        with open("train_ordered.csv", 'w',newline='') as f2:
+            writer2 = csv.writer(f2)
+            writer2.writerow(header)
+            for d_cls in train_data_mat:
+                for r in d_cls:
+                    writer2.writerow(r)
+
 
 def select_features(train_file,test_file,remove_header):
 
@@ -355,9 +384,11 @@ def select_features(train_file,test_file,remove_header):
 
 # s for single value
 # v for vector
+# mul for multiplication all values per id
+# mu for mean
 # n for nomarlize
 
-include = {'id':'s','loc':'v','feat':'vn','sev':'v','eve':'v','res':'v'}
+include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['v'],'eve':['v','mu','mul'],'res':['v','mu','mul']}
 file_name = 'features_2'
 
 
