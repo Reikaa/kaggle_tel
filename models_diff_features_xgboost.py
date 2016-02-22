@@ -161,29 +161,29 @@ def divide_test_valid(train_data,weights=None):
     return train_set,valid_set,np.asarray(my_train_weights).reshape(-1,1)
 
 
-def normalize_data(tr_x,ts_x,normz=None,axis=1):
+def normalize_data(tr_x,ts_x,normz=None,axis=0):
     if normz is 'scale':
         tr_x = scale(tr_x,axis=axis)
         ts_x = scale(ts_x,axis=axis)
     elif normz is 'minmax':
         minmax_scaler = MinMaxScaler()
-        if axis==1:
+        if axis==0:
             for c_i in range(tr_x.shape[1]):
                 tr_x[:,c_i] = minmax_scaler.fit_transform(tr_x[:,c_i])
                 ts_x[:,c_i] = minmax_scaler.fit_transform(ts_x[:,c_i])
-        elif axis==0:
+        elif axis==1:
             for r_i in range(tr_x.shape[0]):
                 tr_x[r_i,:] = minmax_scaler.fit_transform(tr_x[r_i,:])
                 ts_x[r_i,:] = minmax_scaler.fit_transform(ts_x[r_i,:])
     elif normz is 'sigmoid':
-        if axis==1:
-            col_max = np.max(tr_x,axis=1)
+        if axis==0:
+            col_max = np.max(tr_x,axis=0)
             cols_non_norm = np.argwhere(col_max>1).tolist()
             tr_x[:,cols_non_norm] = -0.5 + (1 / (1 + np.exp(-tr_x[:,cols_non_norm])))
             # TODO: implement col_max col_non_norm for test set
             ts_x[:,cols_non_norm] = -0.5 + (1/(1+np.exp(-ts_x[:,cols_non_norm])))
-        elif axis==0:
-            row_max = np.max(tr_x,axis=0)
+        elif axis==1:
+            row_max = np.max(tr_x,axis=1)
             rows_non_norm = np.argwhere(row_max>1).tolist()
             tr_x[rows_non_norm,:] = -0.5 + (1 / (1 + np.exp(-tr_x[rows_non_norm,:])))
             # TODO: implement row_max row_non_norm for test set
@@ -194,7 +194,7 @@ def normalize_data(tr_x,ts_x,normz=None,axis=1):
 from numpy import linalg as LA
 from sklearn.preprocessing import normalize
 from sklearn.preprocessing import scale,MinMaxScaler
-def get_scale_log_x_plus_1(tr_all,ts_all,normz=None,axis=1):
+def get_scale_log_x_plus_1(tr_all,ts_all,normz=None,axis=0):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -219,7 +219,7 @@ def get_scale_log_x_plus_1(tr_all,ts_all,normz=None,axis=1):
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
 from sklearn.ensemble import GradientBoostingClassifier
-def get_exp_decay_fimp(tr_all,ts_all,decay=0.9,normz=None,axis=1):
+def get_exp_decay_fimp(tr_all,ts_all,decay=0.9,normz=None,axis=0):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -243,7 +243,7 @@ def get_exp_decay_fimp(tr_all,ts_all,decay=0.9,normz=None,axis=1):
 
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
-def get_pow(tr_all,ts_all,n=2,normz=None,axis=1):
+def get_pow(tr_all,ts_all,n=2,normz=None,axis=0):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -258,7 +258,7 @@ def get_pow(tr_all,ts_all,n=2,normz=None,axis=1):
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
 from scipy.stats.stats import pearsonr
-def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None,axis=1):
+def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None,axis=0):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -283,7 +283,7 @@ def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None,axis=1):
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
 from sklearn.cluster import KMeans
-def get_kmeans_features(tr_all,ts_all,n_clusters=3,normz=None,axis=1):
+def get_kmeans_features(tr_all,ts_all,n_clusters=3,normz=None,axis=0):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -426,7 +426,7 @@ if __name__ == '__main__':
 
     #f_names = ['features_2','features_dl_all','features_2_cat_tree']
     normz = 'sigmoid'
-    axis = 1
+    axis = 0
     cv_type = 'individual' # individual or all
     print('Normalizing with ',normz)
     f_names = ['features_dl_all']
@@ -439,7 +439,7 @@ if __name__ == '__main__':
             tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
 
             tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz,axis)
-            tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz,axis)
+            #tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz,axis)
             #tr_v_sqr,ts_sqr = get_pow(tr_v_all,ts_all,2,normz,axis)
             #tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz,axis)
             #tr_v_8km,ts_8km = get_kmeans_features(tr_v_all,ts_all,8,normz)
@@ -454,7 +454,7 @@ if __name__ == '__main__':
             param['booster'] = 'gbtree'
             param['eta'] = 0.05  # high eta values give better perf
             param['max_depth'] = 8
-            param['silent'] = 1
+            param['silent'] = 0
             param['lambda'] = 0.9
             param['alpha'] = 0.9
             #param['nthread'] = 4
@@ -462,7 +462,7 @@ if __name__ == '__main__':
             param['colsample_bytree']=0.9
             param['num_class'] = 3
             param['eval_metric']='mlogloss'
-            param['num_rounds'] = 1000
+            param['num_rounds'] = 400
 
             for tf in transformed_features:
                 print('Cross validation for: ', tf[0])
