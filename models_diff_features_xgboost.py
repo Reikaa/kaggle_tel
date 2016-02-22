@@ -427,7 +427,7 @@ if __name__ == '__main__':
     axis = 1
     cv_type = 'individual' # individual or all
     print('Normalizing with ',normz)
-    f_names = ['features_2_agg']
+    f_names = ['features_dl_all']
 
     if cv_type == 'individual':
 

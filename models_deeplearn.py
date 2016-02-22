@@ -432,8 +432,10 @@ class SDAE(object):
         for layer in reversed(self.layers):
             gen_out_hat = layer.decode(gen_out_hat,'finetune')
 
-        self.full_pre_cost = T.sum(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x))
-
+        if self.act == 'sigmoid':
+            self.full_pre_cost = T.sum(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x))
+        elif self.act == 'relu':
+            self.full_pre_cost = T.sqrt(T.sum((gen_out_hat-self.sym_x)**2,axis=1)).dimshuffle(0,'x')
         #self.disc_cost = self.softmax.cost + (self.lam * T.mean(T.nnet.binary_crossentropy(gen_out_hat,self.sym_x)))
         weight_sums = 0.0
         for i in range(len(self.layer_sizes)):

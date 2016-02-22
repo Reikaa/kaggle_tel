@@ -75,11 +75,8 @@ def is_aggregated_feature_better(new_coeff,fidx_coeff,fidx2_coeff,threshold=None
 
     return False
 
-def analyse_aggregated_features_gbm(header,tr_x,tr_y,ts_x,fimp_idx,agg_type='mul'):
-    n_est = 100
-    learning_rate = 0.1
-    max_depth = 5
-    threshold = 0.1
+def analyse_aggregated_features_gbm(header,tr_x,tr_y,ts_x,fimp_idx,agg_type='mul',threshold=0.1,n_est=100,learning_rate=0.1,max_depth=5):
+
     i=0
     features = []
     for fidx in reversed(fimp_idx):
@@ -118,32 +115,12 @@ def analyse_aggregated_features_gbm(header,tr_x,tr_y,ts_x,fimp_idx,agg_type='mul
             print('[single] important feature: ',tmp_features[idx],', (',fimp[idx],')')
             features.append(tmp_features[idx])
 
-
-    new_header,agg_tr_x,agg_ts_x = get_new_data_with_agg(header,tr_x,ts_x,features,False)
-
-    clf2 = GradientBoostingClassifier(n_estimators=n_est*2,learning_rate=learning_rate,max_depth=max_depth*2)
-    clf2 = clf2.fit(agg_tr_x, tr_y)
-    fimp2 = np.asarray(clf2.feature_importances_)
-
-    agg_features = []
-
-    ord_feature_idx = list(reversed(np.argsort(fimp2)))
-    for idx in ord_feature_idx:
-        if fimp2[idx]<threshold:
-            break
-        # if above threshold add the features
-        print('[agg] important feature: ',new_header[idx],', (',fimp2[idx],')')
-        h_val = new_header[idx]
-        if 'mul' in h_val or 'add' in h_val or 'sqr-mul' in h_val:
-            tokens = h_val.split('_')
-            agg_features.append((int(tokens[0],int(tokens[2],tokens[1]))))
-
-    return agg_features,new_header
+    return features
 
 from sklearn.preprocessing import OneHotEncoder
-def transform_with_gbm_to_categorical(header,tr_x,tr_y,ts_x):
+def transform_with_gbm_to_categorical(header,tr_x,tr_y,ts_x,n_est=100,learning_rate=0.1,max_depth=5):
 
-    clf = GradientBoostingClassifier(n_estimators=10,learning_rate=0.01,max_depth=5)
+    clf = GradientBoostingClassifier(n_estimators=n_est,learning_rate=learning_rate,max_depth=max_depth)
     clf = clf.fit(tr_x, tr_y)
 
     ''' #Node count
@@ -168,7 +145,7 @@ def transform_with_gbm_to_categorical(header,tr_x,tr_y,ts_x):
     return header,tr_cat_features,ts_cat_features
 
 
-def analyse_aggregated_features_pearson(header,tr_x,tr_y,fimp_idx):
+def analyse_aggregated_features_pearson(header,tr_x,tr_y,ts_x,fimp_idx):
 
     threshold = 0.3
     features = []
@@ -285,19 +262,67 @@ if __name__ == '__main__':
 
     fn = 'features_2'
     tr_v_all,ts_all,correct_ids,header =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
-    fimp_idx = analyse_feature_imp(header,tr_v_all[1],tr_v_all[2])
 
-    all_agg_features = []
-    agg_features,header2 = analyse_aggregated_features_gbm(header,tr_v_all[1],tr_v_all[2],ts_all[1],fimp_idx,'mul')
-    all_agg_features.extend(agg_features)
-    #agg_features = analyse_aggregated_features_gbm(header,tr_v_all[1],tr_v_all[2],fimp_idx,'add')
-    #all_agg_features.extend(agg_features)
-    print('Adding ',len(all_agg_features),' features')
-    #new_header,new_tr_x, new_ts_x = transform_with_gbm_to_categorical(header,tr_v_all[1],tr_v_all[2],ts_all[1])
-    new_header,new_tr_x,new_ts_x = get_new_data_with_agg(header2,tr_v_all[1],ts_all[1],all_agg_features,False)
+    select_features_with_global_gbm = True
+    tasks = ['analyse-agg-gbm','analyse-agg-pearson','analyse-tree-cat']
+    task = tasks[0]
 
-    filename = fn + "_agg"
-    write_data(new_header,filename,(tr_v_all[0],new_tr_x,tr_v_all[2]),(ts_all[0],new_ts_x))
+    if task == tasks[0]:
+        n_est = 100
+        lr = 0.1
+        max_depth = 5
+        threshold = 0.1
+        fimp_idx = analyse_feature_imp(header,tr_v_all[1],tr_v_all[2])
+        all_agg_features = []
+        agg_features = analyse_aggregated_features_gbm(
+                header,tr_v_all[1],tr_v_all[2],ts_all[1],fimp_idx,'mul',threshold,n_est,lr,max_depth)
+        all_agg_features.extend(agg_features)
+        agg_features = analyse_aggregated_features_gbm(
+                header,tr_v_all[1],tr_v_all[2],fimp_idx,'add',threshold,n_est,lr,max_depth)
+        all_agg_features.extend(agg_features)
+        print('Adding ',len(all_agg_features),' features')
+        new_header,new_tr_x,new_ts_x = get_new_data_with_agg(header,tr_v_all[1],ts_all[1],all_agg_features,False)
+
+        # this is if we perform an extra global faeture selection step with another gbm
+        if select_features_with_global_gbm:
+            clf2 = GradientBoostingClassifier(n_estimators=n_est*2,learning_rate=lr,max_depth=max_depth)
+            clf2 = clf2.fit(new_tr_x, tr_v_all[2])
+            fimp2 = np.asarray(clf2.feature_importances_)
+
+            ord_feature_idx = list(reversed(np.argsort(fimp2)))
+            features_to_keep=[]
+            for idx in ord_feature_idx:
+                if fimp2[idx]<threshold:
+                    break
+                # if above threshold add the features
+                print('[agg] important feature: ',new_header[idx],', (',fimp2[idx],')')
+                features_to_keep.append(idx)
+
+            #get features chosen by above for loop
+            features_to_remove = list(set([tmp_i for tmp_i in range(new_tr_x.shape[1])])-set(features_to_keep))
+            features_to_remove.sort(reverse=True)
+
+            print('Removing ',len(features_to_remove),' features ...')
+            for f_r in features_to_remove:
+                del new_header[f_r]
+                new_tr_x = np.delete(new_tr_x,f_r,axis=1)
+                new_ts_x = np.delete(new_ts_x,f_r,axis=1)
+
+
+        filename = fn + "_gbm"
+        write_data(new_header,filename,(tr_v_all[0],new_tr_x,tr_v_all[2]),(ts_all[0],new_ts_x))
+
+    if task == tasks[1]:
+        agg_features = analyse_aggregated_features_pearson(
+                header,tr_v_all[1],tr_v_all[2],ts_all[1],fimp_idx)
+        new_header,new_tr_x,new_ts_x = get_new_data_with_agg(header,tr_v_all[1],ts_all[1],all_agg_features,False)
+        filename = fn + "_pearson"
+        write_data(new_header,filename,(tr_v_all[0],new_tr_x,tr_v_all[2]),(ts_all[0],new_ts_x))
+
+    if task == tasks[2]:
+        new_header,new_tr_x, new_ts_x = transform_with_gbm_to_categorical(header,tr_v_all[1],tr_v_all[2],ts_all[1])
+        filename = fn + "_cat_tree"
+        write_data(new_header,filename,(tr_v_all[0],new_tr_x,tr_v_all[2]),(ts_all[0],new_ts_x))
 
 
 
