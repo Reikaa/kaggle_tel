@@ -536,7 +536,7 @@ if __name__ == '__main__':
     select_features = False # select features using extratrees (based on importance)
     train_with_valid = False # this specify if we want to finetune with the validation data
     persist_features = True
-    include_original_features = True # do we include original features in the file we save all features togeter?
+    include_original_features = False # do we include original features in the file we save all features togeter?
 
     use_layerwise_weights = False
 
@@ -559,11 +559,11 @@ if __name__ == '__main__':
     dl_params_1['iterations'] = 1
     dl_params_1['in_size'] = th_train[1].get_value(borrow=True).shape[1]
     dl_params_1['out_size'] = 3
-    dl_params_1['hid_sizes'] = [1500,500]
+    dl_params_1['hid_sizes'] = [2000]
     dl_params_1['learning_rate'] = 0.03
     dl_params_1['pre_epochs'] = 50
     dl_params_1['fine_epochs'] = 500
-    dl_params_1['lam'] = 1e-8
+    dl_params_1['lam'] = 1e-3
     dl_params_1['act'] = 'relu'
     dl_params_1['denoise'] = True
     dl_params_1['corr_level'] = 0.1

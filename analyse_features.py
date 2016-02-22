@@ -277,9 +277,9 @@ if __name__ == '__main__':
         agg_features = analyse_aggregated_features_gbm(
                 header,tr_v_all[1],tr_v_all[2],ts_all[1],fimp_idx,'mul',threshold,n_est,lr,max_depth)
         all_agg_features.extend(agg_features)
-        agg_features = analyse_aggregated_features_gbm(
-                header,tr_v_all[1],tr_v_all[2],fimp_idx,'add',threshold,n_est,lr,max_depth)
-        all_agg_features.extend(agg_features)
+        #agg_features = analyse_aggregated_features_gbm(
+        #        header,tr_v_all[1],tr_v_all[2],fimp_idx,'sqr-mul',threshold,n_est,lr,max_depth)
+        #all_agg_features.extend(agg_features)
         print('Adding ',len(all_agg_features),' features')
         new_header,new_tr_x,new_ts_x = get_new_data_with_agg(header,tr_v_all[1],ts_all[1],all_agg_features,False)
 
@@ -292,7 +292,7 @@ if __name__ == '__main__':
             ord_feature_idx = list(reversed(np.argsort(fimp2)))
             features_to_keep=[]
             for idx in ord_feature_idx:
-                if fimp2[idx]<threshold:
+                if fimp2[idx]<threshold//10:
                     break
                 # if above threshold add the features
                 print('[agg] important feature: ',new_header[idx],', (',fimp2[idx],')')
