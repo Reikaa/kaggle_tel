@@ -140,6 +140,10 @@ with open('event_type.csv', 'r',newline='') as f:
             event_data[id] = [event]
 
 max_event = np.max(all_event)
+max_events_per_id = 0
+for k,v in event_data.items():
+    if len(v)>max_events_per_id:
+        max_events_per_id = len(v)
 
 resource_data = collections.defaultdict()
 all_resource =[]
@@ -157,34 +161,17 @@ with open('resource_type.csv', 'r',newline='') as f:
                 id = col
             elif j == 1:
                 res = int(col[14:])
-                all_resource.append(res)
+                all_resource.append(res-1)
         if id in resource_data:
-            resource_data[id].append(res)
+            resource_data[id].append(res-1)
         else:
-            resource_data[id] = [res]
+            resource_data[id] = [res-1]
 
 max_res = np.max(all_resource)
-
-'''
-#concat all data
-all_data = collections.defaultdict()
-all_out = collections.defaultdict()
-all_feature_val = collections.defaultdict()
-for k,v in train_data.items():
-    row = [v[0]] # we need to add the output to a different dic
-    all_out[k] = v[1]
-    if k in feature_data:
-        v.extend(feature_data[k][0])
-        #all_feature_val[k] = feature_data[k][1]
-    if k in severity_data:
-        v.extend(severity_data[k])
-    if k in event_data:
-        v.extend(event_data[k])
-    if k in resource_data:
-        v.extend(resource_data[k])
-
-    all_data[k] = v
-    assert len(v)==7'''
+max_res_per_id = 0
+for k,v in resource_data.items():
+    if len(v)>max_res_per_id:
+        max_res_per_id = len(v)
 
 # features start with 1
 # severity start with 1
@@ -206,14 +193,16 @@ valid_set = []
 
 def write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,isTrain=True,noise=False):
     if isTrain:
-        file_name += '_train.csv'
+        full_file_name = file_name+'_train.csv'
     else:
-        file_name += '_test.csv'
+        full_file_name = file_name + '_test.csv'
 
     train_data_mat = [[],[],[]]
 
+    loc_vec,feature_vec,event_vec,sev_vec,res_vec = None,None,None,None,None
+
     doOnce = False
-    with open(file_name, 'w',newline='') as f:
+    with open(full_file_name, 'w',newline='') as f:
         writer = csv.writer(f)
         for k,v in train_data.items():
 
@@ -222,18 +211,29 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             else:
                 write_row = []
 
-            loc_thresh = 50 # 10 will give 110 element vec, 100 will give 11 element vec
+            loc_thresh = 10 # 10 will give 110 element vec, 100 will give 11 element vec
             if 'loc' in include:
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
                         loc_vec = [v[0]*1.0/max_loc]
-                elif 'v' in include['loc']:
-                    from math import floor
-                    val_for_v0 = float((v[0]*1.0 % loc_thresh)/loc_thresh)
-                    if loc_thresh!=1:
-                        loc_vec = turn_to_vec([floor(v[0]/loc_thresh)],floor(max_loc*1./loc_thresh),val_for_v0)
                     else:
-                        loc_vec = turn_to_vec([v[0]],max_loc,1)
+                        loc_vec = [v[0]]
+                elif 'v' in include['loc']:
+                    from math import floor,ceil
+                    val_for_v0 = float((v[0]*1.0 % loc_thresh)/loc_thresh)
+                    idx_for_v0 = []
+                    if 'res' in include['loc']:
+                        for r in resource_data[k]:
+                            idx_for_v0.append(((max_res+1) * floor(v[0]/loc_thresh))+r)
+                        max_loc_res = ceil(max_loc*1./loc_thresh)*(max_res+1)+1
+                        loc_vec = turn_to_vec(idx_for_v0,max_loc_res,val_for_v0)
+
+                    else:
+                        idx_for_v0 = [floor(v[0]/loc_thresh)]
+                        if loc_thresh!=1:
+                            loc_vec = turn_to_vec(idx_for_v0,floor(max_loc*1./loc_thresh),val_for_v0)
+                        else:
+                            loc_vec = turn_to_vec([v[0]],max_loc,1)
 
 
             if 'feat' in include:
@@ -246,7 +246,10 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                             feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
                             assert feature_vec[important_features.index(list[0])]<=1
                         else:
-                            feature_vec[important_features.index(list[0])] = list[1]
+                            if 'mul_sev' in include['feat']:
+                                feature_vec[important_features.index(list[0])] = list[1] * severity_data[k][0]
+                            else:
+                                feature_vec[important_features.index(list[0])] = list[1]
 
             if 'sev' in include:
                 if 's' in include['sev']:
@@ -259,7 +262,9 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
             if 'eve' in include:
                 if 's' in include['eve']:
-                    event_vec = []
+                    event_vec = [-1 for _ in range(max_events_per_id)]
+                    for tmp_i,e in enumerate(event_data[k]):
+                        event_vec[tmp_i] = e
                     if 'mul' in include['eve']:
                         e_mul = 1
                         for e in event_data[k]:
@@ -270,11 +275,16 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                         event_vec.append(e_mu)
 
                 elif 'v' in include['eve']:
-                    event_vec = turn_to_vec(event_data[k],max_event)
+                    if 'mul_sev' in include['eve']:
+                        event_vec = turn_to_vec(event_data[k],max_event,severity_data[k][0])
+                    else:
+                        event_vec = turn_to_vec(event_data[k],max_event)
 
             if 'res' in include:
                 if 's' in include['res']:
-                    res_vec =[]
+                    res_vec =[-1 for _ in range(max_res_per_id)]
+                    for tmp_i,r in enumerate(resource_data[k]):
+                        res_vec[tmp_i] = r
                     if 'mul' in include['res']:
                         r_mul = 1
                         for r in resource_data[k]:
@@ -284,27 +294,39 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                         r_mu = np.mean(resource_data[k])
                         res_vec.append(r_mu)
                 elif 'v' in include['res']:
-                    res_vec = turn_to_vec(resource_data[k],max_res)
+                    if 'mul_sev' in include['res']:
+                        res_vec = turn_to_vec(resource_data[k],max_res,severity_data[k][0])
+                    else:
+                        res_vec = turn_to_vec(resource_data[k],max_res)
 
 
             if not doOnce:
                 header = ['id']
-                header.extend(['loc_'+str(i) for i in range(len(loc_vec))])
-                header.extend(['feat_'+str(i) for i in range(len(feature_vec))])
-                header.extend(['sev_'+str(i) for i in range(len(sev_vec))])
-                header.extend(['eve_'+str(i) for i in range(len(event_vec))])
-                header.extend(['res_'+str(i) for i in range(len(res_vec))])
+                if loc_vec is not None:
+                    header.extend(['loc_'+str(i) for i in range(len(loc_vec))])
+                if feature_vec is not None:
+                    header.extend(['feat_'+str(i) for i in range(len(feature_vec))])
+                if sev_vec is not None:
+                    header.extend(['sev_'+str(i) for i in range(len(sev_vec))])
+                if event_vec is not None:
+                    header.extend(['eve_'+str(i) for i in range(len(event_vec))])
+                if res_vec is not None:
+                    header.extend(['res_'+str(i) for i in range(len(res_vec))])
                 if isTrain:
                     header.append('out')
                 writer.writerow(header)
                 doOnce = True
 
-            
-            write_row.extend(loc_vec)
-            write_row.extend(feature_vec)
-            write_row.extend(sev_vec)
-            write_row.extend(event_vec)
-            write_row.extend(res_vec)
+            if loc_vec is not None:
+                write_row.extend(loc_vec)
+            if feature_vec is not None:
+                write_row.extend(feature_vec)
+            if sev_vec is not None:
+                write_row.extend(sev_vec)
+            if event_vec is not None:
+                write_row.extend(event_vec)
+            if res_vec is not None:
+                write_row.extend(res_vec)
 
             if noise:
                 noise_vec = np.random.binomial(1,0.25,(len(write_row)))*np.random.random((len(write_row)))*0.1
@@ -317,78 +339,22 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             writer.writerow(write_row)
 
     if isTrain:
-        with open("train_ordered.csv", 'w',newline='') as f2:
+        with open(file_name+"_train_ordered.csv", 'w',newline='') as f2:
             writer2 = csv.writer(f2)
             writer2.writerow(header)
             for d_cls in train_data_mat:
                 for r in d_cls:
                     writer2.writerow(r)
 
-
-def select_features(train_file,test_file,remove_header):
-
-    tr_ids, train_data_x,train_data_y = [],[],[]
-    ts_ids, test_data_x,test_data_y = [],[],[]
-
-    with open(train_file, 'r',newline='') as f:
-        reader = csv.reader(f)
-
-        for i,row in enumerate(reader):
-            if i==0 and remove_header:
-                continue
-            else:
-                tr_ids.append(int(row[0]))
-                train_data_x.append([float(x) for x in row[1:-1]])
-                train_data_y.append(int(row[-1]))
-
-    with open(test_file, 'r',newline='') as f:
-        reader = csv.reader(f)
-
-        for i,row in enumerate(reader):
-            if i==0 and remove_header:
-                continue
-            else:
-                ts_ids.append(int(row[0]))
-                test_data_x.append([float(x) for x in row[1:]])
-
-    from sklearn.svm import LinearSVC
-    from sklearn.feature_selection import SelectFromModel
-
-    lsvc = LinearSVC(C=0.3, penalty="l1", dual=False).fit(
-            np.asarray(train_data_x,dtype=np.float32),np.asarray(train_data_y,dtype=np.int32)
-    )
-    model = SelectFromModel(lsvc, prefit=True)
-    train_x_new = model.transform(np.asarray(train_data_x,dtype=np.float32))
-    test_x_new = model.transform(np.asarray(test_data_x,dtype=np.float32))
-
-
-    with open('features_svm_train.csv', 'w',newline='') as f:
-        writer = csv.writer(f)
-
-        for i,tr in enumerate(train_x_new.tolist()):
-            tr_row = [tr_ids[i]]
-            tr_row.extend(tr)
-            tr_row.append(train_data_y[i])
-            writer.writerow(tr_row)
-
-    with open('features_svm_test.csv', 'w',newline='') as f:
-        writer = csv.writer(f)
-
-        for i,ts in enumerate(test_x_new.tolist()):
-            ts_row = [ts_ids[i]]
-            ts_row.extend(ts)
-
-            writer.writerow(ts_row)
-
-
-
 # s for single value
 # v for vector
 # mul for multiplication all values per id
+# mul_sev for multiply the vector by severity
 # mu for mean
 # n for nomarlize
 
-include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['v'],'eve':['v','mu','mul'],'res':['v','mu','mul']}
+# removed 'sev':['v','n'],
+include = {'id':['s'],'loc':['v'],'feat':['v'],'eve':['v','mul_sev'],'res':['v','mul_sev']}
 file_name = 'features_2'
 
 

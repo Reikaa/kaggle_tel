@@ -160,10 +160,39 @@ def divide_test_valid(train_data,weights=None):
 
     return train_set,valid_set,np.asarray(my_train_weights).reshape(-1,1)
 
+
+def normalize_data(tr_x,ts_x,normz=None,axis=1):
+    if normz is 'scale':
+        tr_x = scale(tr_x,axis=axis)
+        ts_x = scale(ts_x,axis=axis)
+    elif normz is 'minmax':
+        minmax_scaler = MinMaxScaler()
+        if axis==1:
+            for c_i in range(tr_x.shape[1]):
+                tr_x[:,c_i] = minmax_scaler.fit_transform(tr_x[:,c_i])
+                ts_x[:,c_i] = minmax_scaler.fit_transform(ts_x[:,c_i])
+        elif axis==0:
+            for r_i in range(tr_x.shape[0]):
+                tr_x[r_i,:] = minmax_scaler.fit_transform(tr_x[r_i,:])
+                ts_x[r_i,:] = minmax_scaler.fit_transform(ts_x[r_i,:])
+    elif normz is 'sigmoid':
+        if axis==1:
+            for c_i in range(tr_x.shape[1]):
+                if np.max(tr_x[:,c_i])>1.:
+                    tr_x[:,c_i] = -0.5 + (1 / (1 + np.exp(-tr_x[:,c_i])))
+                    ts_x[:,c_i] = -0.5 + (1/(1+np.exp(-ts_x[:,c_i])))
+        elif axis==0:
+            for r_i in range(tr_x.shape[0]):
+                if np.max(tr_x[r_i,:])>1.:
+                    tr_x[r_i,:] = -0.5 + (1 / (1 + np.exp(-tr_x[r_i,:])))
+                    ts_x[r_i,:] = -0.5 + (1/(1+np.exp(-ts_x[r_i,:])))
+
+    return tr_x,ts_x
+
 from numpy import linalg as LA
 from sklearn.preprocessing import normalize
 from sklearn.preprocessing import scale,MinMaxScaler
-def get_scale_log_x_plus_1(tr_all,ts_all,normz=None):
+def get_scale_log_x_plus_1(tr_all,ts_all,normz=None,axis=1):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -180,54 +209,54 @@ def get_scale_log_x_plus_1(tr_all,ts_all,normz=None):
     assert not np.isnan(tr_x).any()
     assert not np.isnan(ts_x).any()
 
-    if normz is 'scale':
-        tr_x = scale(tr_x,axis=0)
-        ts_x = scale(ts_x,axis=0)
-    elif normz is 'minmax':
-        minmax_scaler = MinMaxScaler()
-        for c_i in range(tr_x.shape[1]):
-            tr_x[:,c_i] = minmax_scaler.fit_transform(tr_x[:,c_i])
-            ts_x[:,c_i] = minmax_scaler.fit_transform(ts_x[:,c_i])
+    tr_x,ts_x = normalize_data(tr_x,ts_x,normz,axis)
 
     assert not np.isnan(tr_x).any()
     assert not np.isnan(ts_x).any()
 
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
-from sklearn.ensemble import ExtraTreesClassifier
-def get_exp_decay_fimp(tr_all,ts_all,decay=0.9,normz=None):
+from sklearn.ensemble import GradientBoostingClassifier
+def get_exp_decay_fimp(tr_all,ts_all,decay=0.9,normz=None,axis=1):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
     tr_x = np.copy(tr_x_orig)
     ts_x = np.copy(ts_x_orig)
 
-    clf = ExtraTreesClassifier()
+    clf = GradientBoostingClassifier(n_estimators=100,max_depth=5,learning_rate=0.1)
     clf = clf.fit(tr_x, tr_y)
     fimp = np.asarray(clf.feature_importances_)
     ord_feature_idx = list(reversed(np.argsort(fimp)))
     # need to sort, else hard to perform delete
     train_feature_idx = ord_feature_idx
-    train_feature_idx.sort()
+
     curr_decay = 1
-    for fidx in reversed(train_feature_idx):
+    for fidx in train_feature_idx:
         curr_decay *= decay
         tr_x[:,fidx] *= curr_decay
         ts_x[:,fidx] *= curr_decay
 
-    if normz is 'scale':
-        tr_x = scale(tr_x,axis=0)
-        ts_x = scale(ts_x,axis=0)
-    elif normz is 'minmax':
-        minmax_scaler = MinMaxScaler()
-        for c_i in range(tr_x.shape[1]):
-            tr_x[:,c_i] = minmax_scaler.fit_transform(tr_x[:,c_i])
-            ts_x[:,c_i] = minmax_scaler.fit_transform(ts_x[:,c_i])
+    tr_x,ts_x = normalize_data(tr_x,ts_x,normz,axis)
+
+    return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
+
+def get_pow(tr_all,ts_all,n=2,normz=None,axis=1):
+    tr_ids,tr_x_orig,tr_y = tr_all
+    ts_ids,ts_x_orig = ts_all
+
+    tr_x = np.copy(tr_x_orig)
+    ts_x = np.copy(ts_x_orig)
+
+    tr_x = tr_x**n
+    ts_x = ts_x**n
+
+    tr_x,ts_x = normalize_data(tr_x,ts_x,normz,axis)
 
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
 from scipy.stats.stats import pearsonr
-def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None):
+def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None,axis=1):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -247,19 +276,12 @@ def get_correlated_removed(tr_all,ts_all,thresh=0.95,normz=None):
         tr_x = np.delete(tr_x,idx,axis=1)
         ts_x = np.delete(ts_x,idx,axis=1)
 
-    if normz is 'scale':
-        tr_x = scale(tr_x,axis=0)
-        ts_x = scale(ts_x,axis=0)
-    elif normz is 'minmax':
-        minmax_scaler = MinMaxScaler()
-        for c_i in range(tr_x.shape[1]):
-            tr_x[:,c_i] = minmax_scaler.fit_transform(tr_x[:,c_i])
-            ts_x[:,c_i] = minmax_scaler.fit_transform(ts_x[:,c_i])
+    tr_x, ts_x = normalize_data(tr_x,ts_x,normz,axis)
 
     return (tr_ids,tr_x,tr_y),(ts_ids,ts_x)
 
 from sklearn.cluster import KMeans
-def get_kmeans_features(tr_all,ts_all,n_clusters=3,normz=None):
+def get_kmeans_features(tr_all,ts_all,n_clusters=3,normz=None,axis=1):
     tr_ids,tr_x_orig,tr_y = tr_all
     ts_ids,ts_x_orig = ts_all
 
@@ -272,14 +294,7 @@ def get_kmeans_features(tr_all,ts_all,n_clusters=3,normz=None):
     tf_tr_x = kmeans.transform(tr_x)
     tf_ts_x = kmeans.transform(ts_x)
 
-    if normz is 'scale':
-        tf_tr_x = scale(tf_tr_x,axis=0)
-        tf_ts_x = scale(tf_ts_x,axis=0)
-    elif normz is 'minmax':
-        minmax_scaler = MinMaxScaler()
-        for c_i in range(tf_tr_x.shape[1]):
-            tf_tr_x[:,c_i] = minmax_scaler.fit_transform(tf_tr_x[:,c_i])
-            tf_ts_x[:,c_i] = minmax_scaler.fit_transform(tf_ts_x[:,c_i])
+    tf_tr_x,tf_ts_x = normalize_data(tf_tr_x,tf_ts_x,normz,axis)
 
     return (tr_ids,tf_tr_x,tr_y),(ts_ids,tf_ts_x)
 
@@ -313,10 +328,12 @@ def avg_cross_validator(tr_all_all, ts_all_all, estimators, avg_type='weighted')
         if avg_type is 'mean':
             weights = [1/num_diff_est for _ in range(num_diff_est)]
         elif avg_type is 'weighted':
-            weights = [0.7]
-            for e_i in range(num_diff_est-1):
-                weights.append((1-0.3)/(num_diff_est-1))
-
+            if num_diff_est>1:
+                weights = [0.7]
+                for e_i in range(num_diff_est-1):
+                    weights.append((1-0.3)/(num_diff_est-1))
+            else:
+                weights = [1.0]
         logloss_for_all_folds = []
         for kf_i,(tr_i,v_i) in enumerate(kf):
             print('\t Running for fold: ',kf_i)
@@ -325,6 +342,7 @@ def avg_cross_validator(tr_all_all, ts_all_all, estimators, avg_type='weighted')
 
 
             probs = None
+            e_i = 0
             for k,v in estimators[f_i].items():
                 if k is 'xgb':
                     est = MyXGBClassifier(n_rounds=v['n_rounds'],eta=v['eta'],max_depth=v['max_depth'])
@@ -337,7 +355,7 @@ def avg_cross_validator(tr_all_all, ts_all_all, estimators, avg_type='weighted')
                     probs = weights[e_i]*est.predict_proba(x_test)
                 else:
                     probs = np.add(probs,weights[e_i]*est.predict_proba(x_test))
-
+                e_i += 1
             print('\t Mean logloss for fold ',kf_i,': ',logloss(probs,y_test))
             logloss_for_all_folds.append(logloss(probs,y_test))
         print('\t mean logloss for all folds: ',np.mean(logloss_for_all_folds))
@@ -403,29 +421,32 @@ class MyXGBClassifier(object):
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cross_validation import cross_val_score
 if __name__ == '__main__':
-    print('Loading data ...')
-    #f_names = ['features_2','features_dl_all']
-    normz = 'scale'
+
+    #f_names = ['features_2','features_dl_all','features_2_cat_tree']
+    normz = 'sigmoid'
+    axis = 1
     cv_type = 'individual' # individual or all
     print('Normalizing with ',normz)
-    f_names = ['features_2']
+    f_names = ['features_2_agg']
 
     if cv_type == 'individual':
+
         for fn in f_names:
-            print('Loading ',fn)
+            print('Loading data ... from: ',fn)
+
             tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
 
-            tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz)
-            tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz)
-            tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz)
+            tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz,axis)
+            tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz,axis)
+            #tr_v_sqr,ts_sqr = get_pow(tr_v_all,ts_all,2,normz,axis)
+            #tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz,axis)
             #tr_v_8km,ts_8km = get_kmeans_features(tr_v_all,ts_all,8,normz)
             #tr_v_128km,ts_128km = get_kmeans_features(tr_v_all,ts_all,128,normz)
             #tr_v_1024km,ts_1024km = get_kmeans_features(tr_v_all,ts_all,512,normz)
 
 
-            transformed_features = [('original',tr_v_all,ts_all),('log',tr_v_log,ts_log),('corr',tr_v_corr,ts_corr)
-                                    ]
-            #transformed_features = [('corr',tr_v_corr,ts_corr)]
+            #transformed_features = [('original',tr_v_all,ts_all),('log',tr_v_log,ts_log),('corr',tr_v_corr,ts_corr)]
+            transformed_features = [('original',tr_v_all,ts_all),('log',tr_v_log,ts_log)]
             param = {}
             param['objective'] = 'multi:softprob'
             param['booster'] = 'gbtree'
@@ -451,8 +472,8 @@ if __name__ == '__main__':
                 history = xgb.cv(param,dtrain,param['num_rounds'],nfold=5,metrics={'mlogloss'})
                 print('Xgboost',np.min(history['test-mlogloss-mean']),' at ',np.argmin(history['test-mlogloss-mean']),' iteration')
 
-                knn_cross_vals = cross_val_score(KNeighborsClassifier(n_neighbors=256),tr_x_tf,tr_y_tf,'log_loss',5)
-                print('KNN: ',-np.mean(knn_cross_vals))
+                #knn_cross_vals = cross_val_score(KNeighborsClassifier(n_neighbors=256),tr_x_tf,tr_y_tf,'log_loss',5)
+                #print('KNN: ',-np.mean(knn_cross_vals))
 
                 print()
 
@@ -464,11 +485,11 @@ if __name__ == '__main__':
             tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
             tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz)
             tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz)
-            tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz)
+            #tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz)
             tr_transformed_features.extend(
-                    [tr_v_all,tr_v_log,tr_v_corr])
+                    [tr_v_all,tr_v_log])
             ts_transformed_features.extend(
-                    [ts_all,ts_log,ts_corr]
+                    [ts_all,ts_log]
             )
 
         param = {}
@@ -481,7 +502,7 @@ if __name__ == '__main__':
 
         #estimators = [(MyXGBClassifier(n_rounds=150,eta=0.05,max_depth=8),
         #               KNeighborsClassifier(n_neighbors=256)) for _ in range(len(tr_transformed_features))]
-        estimators = [{'xgb':param,'knn':knn_param} for _ in range(len(tr_transformed_features))]
+        estimators = [{'xgb':param} for _ in range(len(tr_transformed_features))]
         print('Built ',len(estimators),' estimators')
         avg_cross_validator(tr_transformed_features,ts_transformed_features,estimators,'weighted')
     #tr_all,v_all,weigts = divide_test_valid(tr_v_all,None)
