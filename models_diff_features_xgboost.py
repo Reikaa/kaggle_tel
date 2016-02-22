@@ -177,15 +177,17 @@ def normalize_data(tr_x,ts_x,normz=None,axis=1):
                 ts_x[r_i,:] = minmax_scaler.fit_transform(ts_x[r_i,:])
     elif normz is 'sigmoid':
         if axis==1:
-            for c_i in range(tr_x.shape[1]):
-                if np.max(tr_x[:,c_i])>1.:
-                    tr_x[:,c_i] = -0.5 + (1 / (1 + np.exp(-tr_x[:,c_i])))
-                    ts_x[:,c_i] = -0.5 + (1/(1+np.exp(-ts_x[:,c_i])))
+            col_max = np.max(tr_x,axis=1)
+            cols_non_norm = np.argwhere(col_max>1).tolist()
+            tr_x[:,cols_non_norm] = -0.5 + (1 / (1 + np.exp(-tr_x[:,cols_non_norm])))
+            # TODO: implement col_max col_non_norm for test set
+            ts_x[:,cols_non_norm] = -0.5 + (1/(1+np.exp(-ts_x[:,cols_non_norm])))
         elif axis==0:
-            for r_i in range(tr_x.shape[0]):
-                if np.max(tr_x[r_i,:])>1.:
-                    tr_x[r_i,:] = -0.5 + (1 / (1 + np.exp(-tr_x[r_i,:])))
-                    ts_x[r_i,:] = -0.5 + (1/(1+np.exp(-ts_x[r_i,:])))
+            row_max = np.max(tr_x,axis=0)
+            rows_non_norm = np.argwhere(row_max>1).tolist()
+            tr_x[rows_non_norm,:] = -0.5 + (1 / (1 + np.exp(-tr_x[rows_non_norm,:])))
+            # TODO: implement row_max row_non_norm for test set
+            ts_x[rows_non_norm,:] = -0.5 + (1/(1+np.exp(-ts_x[rows_non_norm,:])))
 
     return tr_x,ts_x
 
