@@ -436,7 +436,7 @@ if __name__ == '__main__':
         for fn in f_names:
             print('Loading data ... from: ',fn)
 
-            tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
+            tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',['eve'])
 
             #tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz,axis)
             #tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz,axis)

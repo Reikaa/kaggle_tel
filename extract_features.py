@@ -235,7 +235,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             else:
                 write_row = []
 
-            loc_thresh = 10 # 10 will give 110 element vec, 100 will give 11 element vec
+            loc_thresh = 50 # 10 will give 110 element vec, 100 will give 11 element vec
             if 'loc' in include:
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
@@ -246,34 +246,46 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                     from math import floor,ceil
                     val_for_v0 = float((v[0]*1.0 % loc_thresh)/loc_thresh)
                     idx_for_v0 = []
-                    if 'res' in include['loc']:
-                        for r in resource_data[k]:
-                            idx_for_v0.append(((max_res+1) * floor(v[0]/loc_thresh))+r)
-                        max_loc_res = ceil(max_loc*1./loc_thresh)*(max_res+1)+1
-                        loc_vec = turn_to_vec(idx_for_v0,max_loc_res,val_for_v0)
 
+                    idx_for_v0 = [floor(v[0]/loc_thresh)]
+                    if loc_thresh!=1:
+                        loc_vec = turn_to_vec(idx_for_v0,floor(max_loc*1./loc_thresh),1)
                     else:
-                        idx_for_v0 = [floor(v[0]/loc_thresh)]
-                        if loc_thresh!=1:
-                            loc_vec = turn_to_vec(idx_for_v0,floor(max_loc*1./loc_thresh),val_for_v0)
-                        else:
-                            loc_vec = turn_to_vec([v[0]],max_loc,1)
+                        loc_vec = turn_to_vec([v[0]],max_loc,1)
 
 
             if 'feat' in include:
                 f_list = feature_data[k]
-                feature_vec = [0 for _ in range(max_feature+1)]
+
+                # f_list is like [[feat_x,val],[feat_y,val],...]
                 # list[0] is feature id and list[1] is corresponding value
-                for list in f_list:
-                    if list[0] in important_features:
+
+                if 'bins' in include['feat']:
+                    bin_size = 10
+                    max_feature = np.max(all_features)
+                    feature_vec = [0 for _ in range(ceil((max_feature+1)/bin_size))]
+
+                    # f_list is feature list for k-th id
+                    for list in f_list:
+                        idx = int(floor(list[0]/bin_size))
                         if 'n' in include['feat']:
-                            feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
-                            assert feature_vec[important_features.index(list[0])]<=1
+                            raise NotImplementedError
                         else:
-                            if 'mul_sev' in include['feat']:
-                                feature_vec[important_features.index(list[0])] = list[1] * severity_data[k][0]
+                            feature_vec[idx] += list[1]
+
+
+                else:
+                    feature_vec = [0 for _ in range(max_feature+1)]
+                    for list in f_list:
+                        if list[0] in important_features:
+                            if 'n' in include['feat']:
+                                feature_vec[important_features.index(list[0])] = list[1]*1.0/max_per_feature[list[0]]
+                                assert feature_vec[important_features.index(list[0])]<=1
                             else:
-                                feature_vec[important_features.index(list[0])] = list[1]
+                                if 'mul_sev' in include['feat']:
+                                    feature_vec[important_features.index(list[0])] = list[1] * severity_data[k][0]
+                                else:
+                                    feature_vec[important_features.index(list[0])] = list[1]
 
             if 'sev' in include:
                 if 's' in include['sev']:
@@ -299,8 +311,15 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
                         event_vec.append(e_mu)
 
                 elif 'v' in include['eve']:
-                    if 'mul_sev' in include['eve']:
-                        event_vec = turn_to_vec(event_data[k],max_event,severity_data[k][0])
+                    if 'bins' in include['eve']:
+                        bin_size = 5
+                        e_bin_ids = []
+                        vec_size = int(ceil(max_event/bin_size))
+                        for e_id in event_data[k]:
+                            tmp_id = int(floor(e_id/bin_size))
+                            if tmp_id not in e_bin_ids:
+                                e_bin_ids.append(tmp_id)
+                        event_vec = turn_to_vec(e_bin_ids,vec_size)
                     else:
                         event_vec = turn_to_vec(event_data[k],max_event)
 
@@ -378,7 +397,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 # n for nomarlize
 
 # removed 'sev':['v','n'],
-include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['v'],'eve':['v'],'res':['v']}
+include = {'id':['s'],'loc':['v'],'feat':['v','bins'],'sev':['v'],'eve':['v','bins'],'res':['v']}
 file_name = 'features_2'
 
 
