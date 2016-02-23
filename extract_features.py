@@ -26,6 +26,8 @@ with open('train.csv', 'r',newline='') as f:
         train_data[id]=[loc,sev]
 
 max_loc = np.max(all_locs)
+min_loc = np.min(all_locs)
+
 train_count = len(train_data)
 
 test_data = collections.defaultdict()
@@ -93,7 +95,7 @@ for k,v in feature_count.items():
     if v > 10:
         important_features.append(k)
 max_feature = len(important_features)
-
+min_feature = 0
 severity_data = collections.defaultdict()
 all_severity = []
 
@@ -115,8 +117,10 @@ with open('severity_type.csv', 'r',newline='') as f:
         severity_data[id]=[sev]
 
 max_severity = np.max(all_severity)
+min_severity = np.min(all_severity)
 
 event_data = collections.defaultdict()
+event_count = collections.defaultdict()
 all_event = []
 
 with open('event_type.csv', 'r',newline='') as f:
@@ -134,12 +138,25 @@ with open('event_type.csv', 'r',newline='') as f:
             elif j == 1:
                 event = int(col[11:])
                 all_event.append(event)
+
+        if event in event_count:
+            event_count[event] += 1
+        else:
+            event_count[event] = 1
+
         if id in event_data:
             event_data[id].append(event)
         else:
             event_data[id] = [event]
 
+important_events = []
+for k,v in event_count.items():
+    if v>10:
+        important_events.append(k)
+
 max_event = np.max(all_event)
+min_event = np.min(all_event)
+
 max_events_per_id = 0
 for k,v in event_data.items():
     if len(v)>max_events_per_id:
@@ -168,6 +185,8 @@ with open('resource_type.csv', 'r',newline='') as f:
             resource_data[id] = [res-1]
 
 max_res = np.max(all_resource)
+min_res = np.min(all_resource)
+
 max_res_per_id = 0
 for k,v in resource_data.items():
     if len(v)>max_res_per_id:
@@ -180,6 +199,11 @@ for k,v in resource_data.items():
 # 2 for id and location
 neuron_count = 2 + (max_feature) + (max_severity) + (max_event) + (max_res)
 print('neuron count: ',neuron_count)
+print('Loc: ',min_loc,', ',max_loc)
+print('Features: ',0,', ',max_feature,' (',len(important_features),')')
+print('Event: ',min_event,',',max_event,', (',len(important_events),')')
+print('Severity: ',min_severity,', ',max_severity)
+print('Res: ',min_res,', ',max_res)
 
 def turn_to_vec(indices,max_val,val=1):
     row = [0 for _ in range(max_val+1)]
@@ -354,7 +378,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 # n for nomarlize
 
 # removed 'sev':['v','n'],
-include = {'id':['s'],'loc':['v'],'feat':['v'],'eve':['v','mul_sev'],'res':['v','mul_sev']}
+include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['v'],'eve':['v'],'res':['v']}
 file_name = 'features_2'
 
 

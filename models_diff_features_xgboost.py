@@ -425,11 +425,11 @@ from sklearn.cross_validation import cross_val_score
 if __name__ == '__main__':
 
     #f_names = ['features_2','features_dl_all','features_2_cat_tree']
-    normz = 'sigmoid'
+    normz = None
     axis = 0
     cv_type = 'individual' # individual or all
     print('Normalizing with ',normz)
-    f_names = ['features_dl_all']
+    f_names = ['features_2']
 
     if cv_type == 'individual':
 
@@ -438,7 +438,7 @@ if __name__ == '__main__':
 
             tr_v_all,ts_all,correct_ids =load_teslstra_data_v3(fn+'_train.csv',fn+'_test.csv',None)
 
-            tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz,axis)
+            #tr_v_log,ts_log = get_scale_log_x_plus_1(tr_v_all,ts_all,normz,axis)
             #tr_v_exp,ts_exp = get_exp_decay_fimp(tr_v_all,ts_all,0.95,normz,axis)
             #tr_v_sqr,ts_sqr = get_pow(tr_v_all,ts_all,2,normz,axis)
             #tr_v_corr,ts_corr = get_correlated_removed(tr_v_all,ts_all,0.9,normz,axis)
@@ -448,21 +448,21 @@ if __name__ == '__main__':
 
 
             #transformed_features = [('original',tr_v_all,ts_all),('log',tr_v_log,ts_log),('corr',tr_v_corr,ts_corr)]
-            transformed_features = [('original',tr_v_all,ts_all),('log',tr_v_log,ts_log)]
+            transformed_features = [('original',tr_v_all,ts_all)]
             param = {}
             param['objective'] = 'multi:softprob'
             param['booster'] = 'gbtree'
-            param['eta'] = 0.05  # high eta values give better perf
-            param['max_depth'] = 8
-            param['silent'] = 0
-            param['lambda'] = 0.9
-            param['alpha'] = 0.9
+            param['eta'] = 0.03  # high eta values give better perf
+            param['max_depth'] = 10
+            param['silent'] = 1
+            param['lambda'] = 0.95
+            param['alpha'] = 0.95
             #param['nthread'] = 4
             param['subsample']=0.9
             param['colsample_bytree']=0.9
             param['num_class'] = 3
             param['eval_metric']='mlogloss'
-            param['num_rounds'] = 400
+            param['num_rounds'] = 600
 
             for tf in transformed_features:
                 print('Cross validation for: ', tf[0])
