@@ -94,7 +94,7 @@ important_features=[] # based on the values count for each feature
 for k,v in feature_count.items():
     if v > 10:
         important_features.append(k)
-max_feature = len(important_features)
+max_feature = np.max(all_features)
 min_feature = 0
 severity_data = collections.defaultdict()
 all_severity = []
@@ -235,7 +235,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             else:
                 write_row = []
 
-            loc_thresh = 50 # 10 will give 110 element vec, 100 will give 11 element vec
+            loc_thresh = 1 # 10 will give 110 element vec, 100 will give 11 element vec
             if 'loc' in include:
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
@@ -262,7 +262,6 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
                 if 'bins' in include['feat']:
                     bin_size = 10
-                    max_feature = np.max(all_features)
                     feature_vec = [0 for _ in range(ceil((max_feature+1)/bin_size))]
 
                     # f_list is feature list for k-th id
@@ -397,8 +396,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 # n for nomarlize
 
 # removed 'sev':['v','n'],
-include = {'id':['s'],'loc':['v'],'feat':['v','bins'],'sev':['v'],'eve':['v','bins'],'res':['v']}
-file_name = 'features_2'
+include = {'id':['s'],'loc':['s'],'feat':['v'],'sev':['s'],'eve':['s'],'res':['s']}
+file_name = 'features_2_singles'
 
 
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
