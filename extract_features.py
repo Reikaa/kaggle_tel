@@ -235,7 +235,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
             else:
                 write_row = []
 
-            loc_thresh = 1 # 10 will give 110 element vec, 100 will give 11 element vec
+            loc_thresh = 100 # 10 will give 110 element vec, 100 will give 11 element vec
             if 'loc' in include:
                 if 's' in include['loc'] :
                     if 'n' in include['loc']:
@@ -249,7 +249,7 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 
                     idx_for_v0 = [floor(v[0]/loc_thresh)]
                     if loc_thresh!=1:
-                        loc_vec = turn_to_vec(idx_for_v0,floor(max_loc*1./loc_thresh),1)
+                        loc_vec = turn_to_vec(idx_for_v0,floor(max_loc*1./loc_thresh),val_for_v0)
                     else:
                         loc_vec = turn_to_vec([v[0]],max_loc,1)
 
@@ -396,8 +396,8 @@ def write_file(file_name,train_data,feature_data,severity_data,event_data,resour
 # n for nomarlize
 
 # removed 'sev':['v','n'],
-include = {'id':['s'],'loc':['s'],'feat':['v'],'sev':['s'],'eve':['s'],'res':['s']}
-file_name = 'features_2_singles'
+include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['s'],'eve':['v'],'res':['v']}
+file_name = 'features_2'
 
 
 write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)

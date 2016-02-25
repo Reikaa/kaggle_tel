@@ -425,7 +425,7 @@ from sklearn.cross_validation import cross_val_score
 if __name__ == '__main__':
 
     #f_names = ['features_2','features_dl_all','features_2_cat_tree']
-    normz = None
+    normz = 'sigmoid'
     axis = 0
     cv_type = 'individual' # individual or all
     print('Normalizing with ',normz)

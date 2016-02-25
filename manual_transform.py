@@ -259,32 +259,34 @@ def sort_by_id(drop_cols=None):
     idxs = np.argsort(tr_ids)
 
     dict_by_class = {}
-    dividor = 50
+    dividor = 72
     import csv
     with open('ordered_by_id.csv', 'w',newline='') as f2:
         writer2 = csv.writer(f2)
         writer2.writerow(['id','loc','sev','out'])
         for i in idxs:
             if tr_y[i]==0:
-                if not dict_by_class[idxs[i]%dividor]:
-                    dict_by_class[idxs[i]%dividor] = [1,0,0]
+                if not idxs[i]%dividor in dict_by_class:
+                    dict_by_class[idxs[i]%dividor] = [[1,0,0]]
                 else:
                     dict_by_class[idxs[i]%dividor].append([1,0,0])
             if tr_y[i]==1:
-                if not dict_by_class[idxs[i]%dividor]:
-                    dict_by_class[idxs[i]%dividor] = [0,1,0]
+                if not idxs[i]%dividor in dict_by_class:
+                    dict_by_class[idxs[i]%dividor] = [[0,1,0]]
                 else:
                     dict_by_class[idxs[i]%dividor].append([0,1,0])
             if tr_y[i]==2:
-                if not dict_by_class[idxs[i]%dividor]:
-                    dict_by_class[idxs[i]%dividor] = [0,0,1]
+                if not idxs[i]%dividor in dict_by_class:
+                    dict_by_class[idxs[i]%dividor] = [[0,0,1]]
                 else:
                     dict_by_class[idxs[i]%dividor].append([0,0,1])
             r = [tr_ids[i],tr_loc[i],tr_sev[i],tr_y[i]]
             writer2.writerow(r)
 
     for j in range(dividor):
-        print(np.asarray( dict_by_class[j]).mean(axis=0))
+        arr = np.asarray(dict_by_class[j]).sum(axis=0)
+
+        print(arr[0],',',arr[1],',',arr[2])
 
 
 from numpy import linalg as LA
