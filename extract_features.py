@@ -214,6 +214,55 @@ def turn_to_vec(indices,max_val,val=1):
 valid_set = []
 
 
+def write_severity_in_order(file_name,train_data,test_data):
+
+    sev_file_name = file_name + '_severity.csv'
+    severity_data = []
+    loc_order_by_sev = {}
+    with open('severity_type.csv', 'r',newline='') as f:
+        reader = csv.reader(f)
+
+        for i,row in enumerate(reader):
+            if i==0:
+                continue
+            data_row = []
+            id,sev = None,None
+
+            for j,col in enumerate(row):
+                if j ==0:
+                    id = col
+                elif j==1:
+                    sev = int(col[13:])
+            severity_data.append((id,sev))
+
+    prev_diff_loc = -1
+    order = 0
+    for id,sev in severity_data:
+        if id in train_data:
+            curr_loc = train_data[id][0]
+        else:
+            curr_loc = test_data[id][0]
+
+        if curr_loc != prev_diff_loc:
+            order = 0
+
+        loc_order_by_sev[id]=order
+        order += 1
+        prev_diff_loc = curr_loc
+
+    with open(sev_file_name, 'w',newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['id','sev','location','fault','order'])
+
+        for id,sev in severity_data:
+
+            if id in train_data:
+                row = [str(id),sev,str(train_data[id][0]),str(train_data[id][1]),str(loc_order_by_sev[id])]
+            else:
+                row = [str(id),sev,str(test_data[id][0]),-1,str(loc_order_by_sev[id])]
+
+            writer.writerow(row)
+
 
 def write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,isTrain=True,noise=False):
     if isTrain:
@@ -400,7 +449,7 @@ include = {'id':['s'],'loc':['v'],'feat':['v'],'sev':['s'],'eve':['v'],'res':['v
 file_name = 'features_2'
 
 
-write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
-write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
-
+#write_file(file_name,train_data,feature_data,severity_data,event_data,resource_data,include,True,False)
+#write_file(file_name,test_data,feature_data,severity_data,event_data,resource_data,include,False,False)
+write_severity_in_order('after_comp',train_data,test_data)
 #select_features('features_modified_train.csv','features_modified_test.csv',True)
